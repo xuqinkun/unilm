@@ -8,14 +8,14 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
-from datasets import ClassLabel, load_dataset, load_metric, Split
+from datasets import ClassLabel, load_dataset, load_metric
 
-import layoutlmft.data.datasets.xfun
+import layoutlmft.data.datasets.xreceipt
 import transformers
 from layoutlmft.data import DataCollatorForKeyValueExtraction
-from layoutlmft.data.data_args import XFUNDataTrainingArguments
+from layoutlmft.data.data_args import DataTrainingArguments
 from layoutlmft.models.model_args import ModelArguments
-from layoutlmft.trainers import XfunSerTrainer
+from layoutlmft.trainers import FunsdTrainer as Trainer
 from transformers import (
     AutoConfig,
     AutoModelForTokenClassification,
@@ -36,8 +36,11 @@ logger = logging.getLogger(__name__)
 
 
 def main():
+    # See all possible arguments in layoutlmft/transformers/training_args.py
+    # or by passing the --help flag to this script.
+    # We now keep distinct sets of args, for a cleaner separation of concerns.
 
-    parser = HfArgumentParser((ModelArguments, XFUNDataTrainingArguments, TrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
@@ -82,20 +85,19 @@ def main():
 
     # Set seed before initializing model.
     set_seed(training_args.seed)
-    datasets = load_dataset(
-        os.path.abspath(layoutlmft.data.datasets.xfun.__file__),
-        f"xfun.{data_args.lang}",
-        additional_langs=data_args.additional_langs,
-        keep_in_memory=True,
-    )
+
+    datasets = load_dataset(os.path.abspath(layoutlmft.data.datasets.xreceipt.__file__))
+
     if training_args.do_train:
         column_names = datasets["train"].column_names
         features = datasets["train"].features
     else:
         column_names = datasets["validation"].column_names
         features = datasets["validation"].features
-    text_column_name = "input_ids"
-    label_column_name = "labels"
+    text_column_name = "tokens" if "tokens" in column_names else column_names[0]
+    label_column_name = (
+        f"{data_args.task_name}_tags" if f"{data_args.task_name}_tags" in column_names else column_names[1]
+    )
 
     remove_columns = column_names
 
@@ -130,6 +132,7 @@ def main():
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
+        use_cache=False,
     )
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
@@ -159,12 +162,67 @@ def main():
     # Padding strategy
     padding = "max_length" if data_args.pad_to_max_length else False
 
+    # Tokenize all texts and align the labels with them.
+    def tokenize_and_align_labels(examples):
+        tokenized_inputs = tokenizer(
+            examples[text_column_name],
+            padding=padding,
+            truncation=True,
+            return_overflowing_tokens=True,
+            # We use this argument because the texts in our dataset are lists of words (with a label for each word).
+            is_split_into_words=True,
+        )
+
+        labels = []
+        bboxes = []
+        images = []
+        for batch_index in range(len(tokenized_inputs["input_ids"])):
+            word_ids = tokenized_inputs.word_ids(batch_index=batch_index)
+            org_batch_index = tokenized_inputs["overflow_to_sample_mapping"][batch_index]
+
+            label = examples[label_column_name][org_batch_index]
+            bbox = examples["bboxes"][org_batch_index]
+            image = examples["image"][org_batch_index]
+            previous_word_idx = None
+            label_ids = []
+            bbox_inputs = []
+            for word_idx in word_ids:
+                # Special tokens have a word id that is None. We set the label to -100 so they are automatically
+                # ignored in the loss function.
+                if word_idx is None:
+                    label_ids.append(-100)
+                    bbox_inputs.append([0, 0, 0, 0])
+                # We set the label for the first token of each word.
+                elif word_idx != previous_word_idx:
+                    label_ids.append(label_to_id[label[word_idx]])
+                    bbox_inputs.append(bbox[word_idx])
+                # For the other tokens in a word, we set the label to either the current label or -100, depending on
+                # the label_all_tokens flag.
+                else:
+                    label_ids.append(label_to_id[label[word_idx]] if data_args.label_all_tokens else -100)
+                    bbox_inputs.append(bbox[word_idx])
+                previous_word_idx = word_idx
+            labels.append(label_ids)
+            bboxes.append(bbox_inputs)
+            images.append(image)
+        tokenized_inputs["labels"] = labels
+        tokenized_inputs["bbox"] = bboxes
+        tokenized_inputs["image"] = images
+        return tokenized_inputs
+
     if training_args.do_train:
         if "train" not in datasets:
             raise ValueError("--do_train requires a train dataset")
         train_dataset = datasets["train"]
         if data_args.max_train_samples is not None:
             train_dataset = train_dataset.select(range(data_args.max_train_samples))
+        train_dataset = train_dataset.map(
+            tokenize_and_align_labels,
+            batched=True,
+            remove_columns=remove_columns,
+            num_proc=data_args.preprocessing_num_workers,
+            load_from_cache_file=not data_args.overwrite_cache,
+        )
 
     if training_args.do_eval:
         if "validation" not in datasets:
@@ -172,13 +230,27 @@ def main():
         eval_dataset = datasets["validation"]
         if data_args.max_val_samples is not None:
             eval_dataset = eval_dataset.select(range(data_args.max_val_samples))
+        eval_dataset = eval_dataset.map(
+            tokenize_and_align_labels,
+            batched=True,
+            remove_columns=remove_columns,
+            num_proc=data_args.preprocessing_num_workers,
+            load_from_cache_file=not data_args.overwrite_cache,
+        )
 
     if training_args.do_predict:
-        # if "test" not in datasets:
-        #     raise ValueError("--do_predict requires a test dataset")
-        test_dataset = datasets["validation"]
+        if "test" not in datasets:
+            raise ValueError("--do_predict requires a test dataset")
+        test_dataset = datasets["test"]
         if data_args.max_test_samples is not None:
             test_dataset = test_dataset.select(range(data_args.max_test_samples))
+        test_dataset = test_dataset.map(
+            tokenize_and_align_labels,
+            batched=True,
+            remove_columns=remove_columns,
+            num_proc=data_args.preprocessing_num_workers,
+            load_from_cache_file=not data_args.overwrite_cache,
+        )
 
     # Data collator
     data_collator = DataCollatorForKeyValueExtraction(
@@ -225,7 +297,7 @@ def main():
             }
 
     # Initialize our Trainer
-    trainer = XfunSerTrainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,

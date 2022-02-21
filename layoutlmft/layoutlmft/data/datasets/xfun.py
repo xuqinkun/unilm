@@ -7,7 +7,7 @@ import datasets
 
 from layoutlmft.data.utils import load_image, merge_bbox, normalize_bbox, simplify_bbox
 from transformers import AutoTokenizer
-
+import traceback
 
 _URL = "https://github.com/doc-analysis/XFUN/releases/download/v1.0/"
 
@@ -93,14 +93,15 @@ class XFUN(datasets.GeneratorBasedBuilder):
         logger.info(f"Evaluating on {self.config.lang}")
         logger.info(f"Testing on {self.config.lang}")
         return [
-            datasets.SplitGenerator(name=datasets.Split.TRAIN, gen_kwargs={"filepaths": train_files_for_many_langs}),
+            datasets.SplitGenerator(name=datasets.Split.TRAIN,
+                                    gen_kwargs={"filepaths": train_files_for_many_langs, "split": "train"}),
             datasets.SplitGenerator(
-                name=datasets.Split.VALIDATION, gen_kwargs={"filepaths": val_files_for_many_langs}
+                name=datasets.Split.VALIDATION, gen_kwargs={"filepaths": val_files_for_many_langs, "split": "test"}
             ),
             # datasets.SplitGenerator(name=datasets.Split.TEST, gen_kwargs={"filepaths": test_files_for_many_langs}),
         ]
 
-    def _generate_examples(self, filepaths):
+    def _generate_examples(self, filepaths, split):
         for filepath in filepaths:
             logger.info("Generating examples from = %s", filepath)
             with open(filepath[0], "r") as f:
@@ -208,13 +209,13 @@ class XFUN(datasets.GeneratorBasedBuilder):
                 for chunk_id, index in enumerate(range(0, len(tokenized_doc["input_ids"]), chunk_size)):
                     item = {}
                     for k in tokenized_doc:
-                        item[k] = tokenized_doc[k][index : index + chunk_size]
+                        item[k] = tokenized_doc[k][index: index + chunk_size]
                     entities_in_this_span = []
                     global_to_local_map = {}
                     for entity_id, entity in enumerate(entities):
                         if (
-                            index <= entity["start"] < index + chunk_size
-                            and index <= entity["end"] < index + chunk_size
+                                index <= entity["start"] < index + chunk_size
+                                and index <= entity["end"] < index + chunk_size
                         ):
                             entity["start"] = entity["start"] - index
                             entity["end"] = entity["end"] - index
@@ -223,8 +224,8 @@ class XFUN(datasets.GeneratorBasedBuilder):
                     relations_in_this_span = []
                     for relation in relations:
                         if (
-                            index <= relation["start_index"] < index + chunk_size
-                            and index <= relation["end_index"] < index + chunk_size
+                                index <= relation["start_index"] < index + chunk_size
+                                and index <= relation["end_index"] < index + chunk_size
                         ):
                             relations_in_this_span.append(
                                 {
@@ -242,4 +243,6 @@ class XFUN(datasets.GeneratorBasedBuilder):
                             "relations": relations_in_this_span,
                         }
                     )
-                    yield f"{doc['id']}_{chunk_id}", item
+                    print(len(entities), len(bbox))
+                    key = f"{doc['id']}_{chunk_id}"
+                    yield key, item

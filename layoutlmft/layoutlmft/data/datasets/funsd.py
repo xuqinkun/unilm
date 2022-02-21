@@ -80,7 +80,7 @@ class Funsd(datasets.GeneratorBasedBuilder):
         ]
 
     def _generate_examples(self, filepath):
-        logger.info("⏳ Generating examples from = %s", filepath)
+        logger.info(" Generating examples from = %s", filepath)
         ann_dir = os.path.join(filepath, "annotations")
         img_dir = os.path.join(filepath, "images")
         for guid, file in enumerate(sorted(os.listdir(ann_dir))):
@@ -112,5 +112,5 @@ class Funsd(datasets.GeneratorBasedBuilder):
                         tokens.append(w["text"])
                         ner_tags.append("I-" + label.upper())
                         bboxes.append(normalize_bbox(w["box"], size))
-
+            print(len(tokens), len(bboxes), len(ner_tags))
             yield guid, {"id": str(guid), "tokens": tokens, "bboxes": bboxes, "ner_tags": ner_tags, "image": image}
