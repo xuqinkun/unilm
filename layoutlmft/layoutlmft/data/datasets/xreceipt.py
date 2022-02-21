@@ -4,7 +4,7 @@ import logging
 import os
 
 import datasets
-from layoutlmft.data.utils import load_image, read_ner_label, normalize_bbox
+from layoutlmft.data.utils import load_image, read_ner_label, normalize_bbox, merge_bbox, simplify_bbox
 from transformers import AutoTokenizer
 
 _LANG = ["zh", "de", "es", "fr", "en", "it", "ja", "pt"]
@@ -19,30 +19,17 @@ LABEL_MAP = {"凭证号": "ID", "发票类型": "TAX_TYPE", "日期": "DATE", "�
              "数量": "NUM", "税率": "TAX_RATE", "金额": "AMOUNT", "备注": "REMARK"}
 
 
-# class XReceiptConfig(datasets.BuilderConfig):
-#
-#     def __init__(self, lang, addtional_langs=None, **kwargs):
-#         super(XReceiptConfig, self).__init__(**kwargs)
-#         self.lang = lang
-#         self.addtional_langs = addtional_langs
+class XReceiptConfig(datasets.BuilderConfig):
 
-class ReceiptConfig(datasets.BuilderConfig):
-    """BuilderConfig for FUNSD"""
-
-    def __init__(self, **kwargs):
-        """BuilderConfig for FUNSD.
-
-        Args:
-          **kwargs: keyword arguments forwarded to super.
-        """
-        super(ReceiptConfig, self).__init__(**kwargs)
+    def __init__(self, lang, addtional_langs=None, **kwargs):
+        super(XReceiptConfig, self).__init__(**kwargs)
+        self.lang = lang
+        self.addtional_langs = addtional_langs
 
 
 class XReceipt(datasets.GeneratorBasedBuilder):
-    # BUILDER_CONFIGS = [XReceiptConfig(name=f"xreceipt.{lang}", lang=lang) for lang in _LANG]
-    BUILDER_CONFIGS = [
-        ReceiptConfig(name="xreceipt", version=datasets.Version("1.0.0"), description="xreceipt dataset"),
-    ]
+
+    BUILDER_CONFIGS = [XReceiptConfig(name=f"xreceipt.{lang}", lang=lang) for lang in _LANG]
 
     tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
 
@@ -51,9 +38,9 @@ class XReceipt(datasets.GeneratorBasedBuilder):
             features=datasets.Features(
                 {
                     "id": datasets.Value("string"),
-                    "tokens": datasets.Sequence(datasets.Value("string")),
-                    "bboxes": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
-                    "ner_tags": datasets.Sequence(
+                    "input_ids": datasets.Sequence(datasets.Value("int64")),
+                    "bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
+                    "labels": datasets.Sequence(
                         datasets.features.ClassLabel(
                             names=["O", "B-ID", "B-SUPPLIER", "B-CUSTOMER", "B-AMOUNT", "B-NUM", "B-TAX_TYPE",
                                    "B-DATE", "B-TAX_RATE", "B-REMARK", "I-ID", "I-SUPPLIER", "I-CUSTOMER", "I-AMOUNT",
@@ -61,6 +48,14 @@ class XReceipt(datasets.GeneratorBasedBuilder):
                         )
                     ),
                     "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
+                    "entities": datasets.Sequence(
+                        {
+                            "start": datasets.Value("int64"),
+                            "end": datasets.Value("int64"),
+                            "label": datasets.ClassLabel(names=["ID", "SUPPLIER", "CUSTOMER", "AMOUNT", "NUM",
+                                                                "TAX_TYPE", "DATE", "TAX_RATE", "REMARK"]),
+                        }
+                    ),
                 }
             ),
             supervised_keys=None,
@@ -120,13 +115,10 @@ class XReceipt(datasets.GeneratorBasedBuilder):
                 ocr_data = json.load(f)
             if type(ocr_data) == str:
                 ocr_data = json.loads(ocr_data)
-            img_path = tag_data['imagePath']
             image, size = load_image(img_file)
             labels = read_ner_label(ocr_filepath, tag_filepath)
-            ner_tags = []
-            ocr_tokens = {}
-            tag_line_ids = set()
             lines = []
+            entity_id_to_index_map = {}
             for _page in ocr_data["pages"]:
                 for _table in _page['table']:
                     if len(_table["lines"]) != 0:
@@ -134,33 +126,99 @@ class XReceipt(datasets.GeneratorBasedBuilder):
                     else:
                         for cell in _table["form_blocks"]:
                             lines += cell["lines"]
-            tokens = []
-            bboxes = []
-            id2label = {}
-            for label_name, words in labels:
-                if len(words) == 0:
-                    continue
-                line_id = words[0].line_id
-                tag_line_ids.add(line_id)
-                id2label[line_id] = label_name
+            entities = []
+            tokenized_doc = {"input_ids": [], "bbox": [], "labels": []}
+            tag_line_ids, id2label = _parse_labels(labels)
             guid = img_file
             for line_id, line in enumerate(lines):
-                word_idx = 0
+                if len(line["text"].strip()) == 0:
+                    continue
                 tokenized_inputs = self.tokenizer(
                     line["text"],
                     add_special_tokens=False,
                     return_offsets_mapping=True,
                     return_attention_mask=False,
                 )
-                for token, box in zip(line["text"], line["char_polygons"]):
-                    tokens.append(token)
-                    bboxes.append(normalize_bbox(box, size))
-                    if line_id in tag_line_ids:
-                        if word_idx == 0:
-                            ner_tags.append("B-" + LABEL_MAP[id2label[line_id]])
-                        else:
-                            ner_tags.append("I-" + LABEL_MAP[id2label[line_id]])
-                    else:
-                        ner_tags.append("O")
-                    word_idx += 1
-            yield guid, {"id": str(guid), "tokens": tokens, "bboxes": bboxes, "ner_tags": ner_tags, "image": image}
+
+                text_length = 0
+                ocr_length = 0
+                bbox = []
+                last_box = None
+                for token_id, offset in zip(tokenized_inputs["input_ids"], tokenized_inputs["offset_mapping"]):
+                    if token_id == 6:
+                        bbox.append(None)
+                        continue
+                    text_length += offset[1] - offset[0]
+                    tmp_box = []
+                    while ocr_length < text_length:
+                        ocr_word = line["char_candidates"].pop(0)
+                        box = line['char_polygons'].pop(0)
+                        ocr_length += len(
+                            self.tokenizer._tokenizer.normalizer.normalize_str(ocr_word[0].strip())
+                        )
+                        tmp_box.append(simplify_bbox(box))
+                    if len(tmp_box) == 0:
+                        tmp_box = last_box
+                    bbox.append(normalize_bbox(merge_bbox(tmp_box), size))
+                    last_box = tmp_box
+                bbox = [
+                    [bbox[i + 1][0], bbox[i + 1][1], bbox[i + 1][0], bbox[i + 1][1]] if b is None else b
+                    for i, b in enumerate(bbox)
+                ]
+                if line_id not in tag_line_ids:
+                    label_name = "O"
+                    tags = [label_name] * len(bbox)
+                else:
+                    label_name = LABEL_MAP[id2label[line_id]]
+                    tags = [f"I-{label_name.upper()}"] * len(bbox)
+                    tags[0] = f"B-{label_name.upper()}"
+                tokenized_inputs.update({"bbox": bbox, "labels": tags})
+                if tags[0] != "O":
+                    entity_id_to_index_map[line_id] = len(entities)
+                    entities.append(
+                        {
+                            "start": len(tokenized_doc["input_ids"]),
+                            "end": len(tokenized_doc["input_ids"]) + len(tokenized_inputs["input_ids"]),
+                            "label": label_name.upper(),
+                        }
+                    )
+                for i in tokenized_doc:
+                    tokenized_doc[i] = tokenized_doc[i] + tokenized_inputs[i]
+            chunk_size = 512
+            for chunk_id, index in enumerate(range(0, len(tokenized_doc["input_ids"]), chunk_size)):
+                item = {}
+                for k in tokenized_doc:
+                    item[k] = tokenized_doc[k][index: index + chunk_size]
+                entities_in_this_span = []
+                global_to_local_map = {}
+                for entity_id, entity in enumerate(entities):
+                    if (
+                            index <= entity["start"] < index + chunk_size
+                            and index <= entity["end"] < index + chunk_size
+                    ):
+                        entity["start"] = entity["start"] - index
+                        entity["end"] = entity["end"] - index
+                        global_to_local_map[entity_id] = len(entities_in_this_span)
+                        entities_in_this_span.append(entity)
+
+                item.update(
+                    {
+                        "id": f"{guid}_{chunk_id}",
+                        "image": image,
+                        "entities": entities_in_this_span,
+                    }
+                )
+                key = f"{guid}_{chunk_id}"
+                yield key, item
+
+
+def _parse_labels(labels):
+    tag_line_ids = set()
+    id2label = {}
+    for label_name, words in labels:
+        if len(words) == 0:
+            continue
+        line_id = words[0].line_id
+        tag_line_ids.add(line_id)
+        id2label[line_id] = label_name
+    return tag_line_ids, id2label

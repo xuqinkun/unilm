@@ -243,6 +243,5 @@ class XFUN(datasets.GeneratorBasedBuilder):
                             "relations": relations_in_this_span,
                         }
                     )
-                    print(len(entities), len(bbox))
                     key = f"{doc['id']}_{chunk_id}"
                     yield key, item
