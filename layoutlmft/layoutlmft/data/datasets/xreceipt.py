@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 
 _URLs = {  # 本地文件的路径
     'train': "/home/std2020/xqk/data/receipt/train/train.tar.gz",
-    'validation': "/home/std2020/xqk/data/receipt/val/val.tar.gz"
+    'validation': "/home/std2020/xqk/data/receipt/val/val.tar.gz",
+    'test': "/home/std2020/xqk/data/receipt/test/test.tar.gz",
 }
 
 LABEL_MAP = {"凭证号": "ID", "发票类型": "TAX_TYPE", "日期": "DATE", "客户名称": "CUSTOMER", "供用商名称": "SUPPLIER",
@@ -77,6 +78,12 @@ class XReceipt(datasets.GeneratorBasedBuilder):
                     "filepath": data_dir["validation"],
                     "split": "validation"}
             ),
+            datasets.SplitGenerator(
+                name=datasets.Split.TEST,
+                gen_kwargs={
+                    "filepath": data_dir["test"],
+                    "split": "test"}
+            ),
         ]
 
     def _generate_examples(self, filepath, split):
@@ -106,17 +113,19 @@ class XReceipt(datasets.GeneratorBasedBuilder):
             file_dict[key][file_type] = file
 
         for key in file_dict.keys():
-            tag_filepath = os.path.join(filepath, file_dict[key]['tag'])
+            file_group = file_dict[key]
             img_file = os.path.join(filepath, file_dict[key]['img'])
             ocr_filepath = os.path.join(filepath, file_dict[key]['ocr'])
-            with open(tag_filepath, 'r', encoding="utf-8") as f:
-                tag_data = json.load(f)
             with open(ocr_filepath, 'r', encoding="utf-8") as f:
                 ocr_data = json.load(f)
             if type(ocr_data) == str:
                 ocr_data = json.loads(ocr_data)
             image, size = load_image(img_file)
-            labels = read_ner_label(ocr_filepath, tag_filepath)
+
+            if 'tag' in file_group.keys():
+                labels = read_ner_label(ocr_filepath, os.path.join(filepath, file_group['tag']))
+            else:
+                labels = None
             lines = []
             entity_id_to_index_map = {}
             for _page in ocr_data["pages"]:
@@ -173,6 +182,7 @@ class XReceipt(datasets.GeneratorBasedBuilder):
                     tags = [f"I-{label_name.upper()}"] * len(bbox)
                     tags[0] = f"B-{label_name.upper()}"
                 tokenized_inputs.update({"bbox": bbox, "labels": tags})
+
                 if tags[0] != "O":
                     entity_id_to_index_map[line_id] = len(entities)
                     entities.append(
@@ -209,16 +219,19 @@ class XReceipt(datasets.GeneratorBasedBuilder):
                     }
                 )
                 key = f"{guid}_{chunk_id}"
+                if len(tag_line_ids) == 0:
+                    item["labels"] = []
                 yield key, item
 
 
 def _parse_labels(labels):
     tag_line_ids = set()
     id2label = {}
-    for label_name, words in labels:
-        if len(words) == 0:
-            continue
-        line_id = words[0].line_id
-        tag_line_ids.add(line_id)
-        id2label[line_id] = label_name
+    if labels:
+        for label_name, words in labels:
+            if len(words) == 0:
+                continue
+            line_id = words[0].line_id
+            tag_line_ids.add(line_id)
+            id2label[line_id] = label_name
     return tag_line_ids, id2label

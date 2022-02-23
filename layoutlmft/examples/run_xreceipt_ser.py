@@ -4,14 +4,11 @@
 import logging
 import os
 import sys
-from dataclasses import dataclass, field
-from typing import Optional
-
-import numpy as np
-from datasets import ClassLabel, load_dataset, load_metric, Split
 
 import layoutlmft.data.datasets.xreceipt
+import numpy as np
 import transformers
+from datasets import ClassLabel, load_dataset, load_metric
 from layoutlmft.data import DataCollatorForKeyValueExtraction
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
 from layoutlmft.models.model_args import ModelArguments
@@ -28,7 +25,6 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version
 
-
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.5.0")
 
@@ -36,7 +32,6 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-
     parser = HfArgumentParser((ModelArguments, XFUNDataTrainingArguments, TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -278,13 +273,31 @@ def main():
 
         trainer.log_metrics("test", metrics)
         trainer.save_metrics("test", metrics)
-
+        id_to_word = {v: k for k, v in tokenizer.vocab.items()}
         # Save predictions
-        output_test_predictions_file = os.path.join(training_args.output_dir, "test_predictions.txt")
-        if trainer.is_world_process_zero():
-            with open(output_test_predictions_file, "w") as writer:
-                for prediction in true_predictions:
-                    writer.write(" ".join(prediction) + "\n")
+        # output_test_predictions_file = os.path.join(training_args.output_dir, "test_predictions.txt")
+        output_dir = training_args.output_dir
+        for i, _src in enumerate(test_dataset['id']):
+            img_src, chunk_id = _src.rsplit("_", 1)
+            _, filename = img_src.rsplit("/", 1)
+            key, suffix = filename.rsplit(".", 1)
+            with open(img_src, "rb") as f:
+                data = f.read()
+            output_path = os.path.join(output_dir, "predict", key)
+            if not os.path.exists(output_path):
+                os.makedirs(output_path, exist_ok=True)
+            with open(os.path.join(output_path, filename), 'wb') as f:
+                f.write(data)
+            with open(os.path.join(output_path, key + ".json"), "w", encoding='utf-8') as writer:
+                for label, word_id in zip(true_predictions[i], test_dataset['input_ids'][i]):
+                    if word_id == 6:
+                        continue
+                    writer.write(f'{id_to_word[word_id]}  {label} \n')
+
+        # if trainer.is_world_process_zero():
+        #     with open(output_test_predictions_file, "w") as writer:
+        #         for prediction in true_predictions:
+        #             writer.write(" ".join(prediction) + "\n")
 
 
 def _mp_fn(index):
