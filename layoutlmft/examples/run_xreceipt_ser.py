@@ -200,6 +200,7 @@ def main():
             for prediction, label in zip(predictions, labels)
         ]
 
+        # results = metric.compute(predictions=true_predictions, references=true_labels, mode="strict")
         results = metric.compute(predictions=true_predictions, references=true_labels)
         if data_args.return_entity_level_metrics:
             # Unpack nested dictionaries
@@ -262,13 +263,13 @@ def main():
     if training_args.do_predict:
         logger.info("*** Predict ***")
 
-        predictions, labels, metrics = trainer.predict(test_dataset)
+        predictions, pred_entity_labels, metrics = trainer.predict(test_dataset)
         predictions = np.argmax(predictions, axis=2)
 
         # Remove ignored index (special tokens)
         true_predictions = [
             [label_list[p] for (p, l) in zip(prediction, label) if l != -100]
-            for prediction, label in zip(predictions, labels)
+            for prediction, label in zip(predictions, pred_entity_labels)
         ]
 
         trainer.log_metrics("test", metrics)
@@ -276,28 +277,68 @@ def main():
         id_to_word = {v: k for k, v in tokenizer.vocab.items()}
         # Save predictions
         # output_test_predictions_file = os.path.join(training_args.output_dir, "test_predictions.txt")
-        output_dir = training_args.output_dir
+        output_dir = os.path.join(training_args.output_dir, "predict",
+                                  "%d-%d" % (len(train_dataset), len(test_dataset)))
+        pred_entities = []
+        pred_entity_labels = []
+        true_entity_labels = []
+        true_label_num = 0
         for i, _src in enumerate(test_dataset['id']):
             img_src, chunk_id = _src.rsplit("_", 1)
             _, filename = img_src.rsplit("/", 1)
             key, suffix = filename.rsplit(".", 1)
             with open(img_src, "rb") as f:
                 data = f.read()
-            output_path = os.path.join(output_dir, "predict", key)
+            output_path = os.path.join(output_dir, key)
             if not os.path.exists(output_path):
                 os.makedirs(output_path, exist_ok=True)
             with open(os.path.join(output_path, filename), 'wb') as f:
                 f.write(data)
-            with open(os.path.join(output_path, key + ".json"), "w", encoding='utf-8') as writer:
-                for label, word_id in zip(true_predictions[i], test_dataset['input_ids'][i]):
-                    if word_id == 6:
-                        continue
-                    writer.write(f'{id_to_word[word_id]}  {label} \n')
+            input_ids = test_dataset['input_ids'][i]
+            true_labels = [label_list[i] for i in test_dataset['labels'][i]]
+            for label in true_labels:
+                if label.startswith('B'):
+                    true_label_num += 1
+            pred_labels = true_predictions[i]
+            idx = 0
+            input_size = len(input_ids)
+            while idx < input_size:
+                curr_pred_label = pred_labels[idx]
+                curr_true_label = true_labels[idx]
+                if curr_pred_label == 'O':
+                    idx += 1
+                    continue
+                entity = ""
 
-        # if trainer.is_world_process_zero():
-        #     with open(output_test_predictions_file, "w") as writer:
-        #         for prediction in true_predictions:
-        #             writer.write(" ".join(prediction) + "\n")
+                label = curr_pred_label.split("-", 1)[-1]
+                if curr_pred_label.startswith("B"):
+                    while idx < input_size and pred_labels[idx] != 'O':
+                        word_id = input_ids[idx]
+                        idx += 1
+                        if word_id == 6:
+                            continue
+                        entity += id_to_word[word_id]
+                else:
+                    idx += 1
+                if entity != "":
+                    if entity.startswith('▁'):
+                        entity = entity.split('▁')[-1]
+                    pred_entities.append(entity)
+                    pred_entity_labels.append(label)
+                    true_entity_labels.append(curr_true_label.split("-", 1)[-1])
+        correct_label_num = 0
+        for true_label, pred_label in zip(true_entity_labels, pred_entity_labels):
+            if true_label == pred_label:
+                correct_label_num += 1
+        recall = correct_label_num * 100 / true_label_num
+        precision = correct_label_num * 100 / len(pred_entity_labels)
+        f1 = 2 * precision * recall / (precision + recall)
+        print("Train num=%d, Test num=%d" % (len(train_dataset), len(test_dataset)))
+        print("Total labels: %d" % true_label_num)
+        print("Correct pred label: %d" % correct_label_num)
+        print("Recall: %.2f%%" % recall)
+        print("Precision: %.2f%%" % precision)
+        print("F1: %.2f%%" % f1)
 
 
 def _mp_fn(index):
