@@ -10,24 +10,25 @@ from transformers import AutoTokenizer
 _LANG = ["zh", "de", "es", "fr", "en", "it", "ja", "pt"]
 logger = logging.getLogger(__name__)
 
-LABEL_MAP = {"金额": "AMOUNT", "日期": "DATE"}
+LABEL_MAP = {"凭证号": "ID", "发票类型": "TAX_TYPE", "日期": "DATE", "客户名称": "CUSTOMER", "供用商名称": "SUPPLIER",
+             "数量": "NUM", "税率": "TAX_RATE", "金额": "AMOUNT", "备注": "REMARK", "总金额": "TOTAL_AMOUNT", }
 
 
-class XReceiptConfig(datasets.BuilderConfig):
+class XInvoiceConfig(datasets.BuilderConfig):
 
     def __init__(self, lang, addtional_langs=None, **kwargs):
-        super(XReceiptConfig, self).__init__(**kwargs)
+        super(XInvoiceConfig, self).__init__(**kwargs)
         self.lang = lang
         self.addtional_langs = addtional_langs
 
 
-class XReceipt(datasets.GeneratorBasedBuilder):
-    BUILDER_CONFIGS = [XReceiptConfig(name=f"xreceipt.{lang}", lang=lang) for lang in _LANG]
+class XInvoice(datasets.GeneratorBasedBuilder):
+    BUILDER_CONFIGS = [XInvoiceConfig(name=f"xreceipt.{lang}", lang=lang) for lang in _LANG]
 
     tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
 
     def __init__(self, **kwargs):
-        super(XReceipt, self).__init__(**kwargs)
+        super(XInvoice, self).__init__(**kwargs)
         self.data_dir = kwargs['data_dir']
 
     def _info(self):
@@ -39,7 +40,9 @@ class XReceipt(datasets.GeneratorBasedBuilder):
                     "bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
                     "labels": datasets.Sequence(
                         datasets.features.ClassLabel(
-                            names=["O", "B-AMOUNT", "B-DATE", "I-AMOUNT", "I-DATE"]
+                            names=["O", "B-ID", "B-SUPPLIER", "B-CUSTOMER", "B-AMOUNT", "B-NUM", "B-TAX_TYPE",
+                                   "B-DATE", "B-TAX_RATE", "B-REMARK", "I-ID", "I-SUPPLIER", "I-CUSTOMER", "I-AMOUNT",
+                                   "I-NUM", "I-TAX_TYPE", "I-DATE", "I-TAX_RATE", "I-REMARK"]
                         )
                     ),
                     "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
@@ -47,7 +50,8 @@ class XReceipt(datasets.GeneratorBasedBuilder):
                         {
                             "start": datasets.Value("int64"),
                             "end": datasets.Value("int64"),
-                            "label": datasets.ClassLabel(names=["AMOUNT", "DATE"]),
+                            "label": datasets.ClassLabel(names=["ID", "SUPPLIER", "CUSTOMER", "AMOUNT", "NUM",
+                                                                "TAX_TYPE", "DATE", "TAX_RATE", "REMARK"]),
                         }
                     ),
                 }

@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 
-import layoutlmft.data.datasets.xreceipt
+import layoutlmft.data.datasets.xinvoice
 import numpy as np
 import transformers
 from datasets import ClassLabel, load_dataset, load_metric
@@ -78,8 +78,8 @@ def main():
     # Set seed before initializing model.
     set_seed(training_args.seed)
     datasets = load_dataset(
-        os.path.abspath(layoutlmft.data.datasets.xreceipt.__file__),
-        f"xreceipt.{data_args.lang}",
+        os.path.abspath(layoutlmft.data.datasets.xinvoice.__file__),
+        f"xinvoice.{data_args.lang}",
         additional_langs=data_args.additional_langs,
         keep_in_memory=True,
         data_dir=data_args.data_dir
@@ -192,10 +192,6 @@ def main():
         predictions = np.argmax(predictions, axis=2)
 
         # Remove ignored index (special tokens)
-        for prediction, label in zip(predictions, labels):
-            for (p, l) in zip(prediction, label):
-                if p >= len(label_list):
-                    print(p)
         true_predictions = [
             [label_list[p] for (p, l) in zip(prediction, label) if l != -100]
             for prediction, label in zip(predictions, labels)
