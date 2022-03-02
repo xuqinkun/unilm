@@ -58,7 +58,7 @@ class XReceipt(datasets.GeneratorBasedBuilder):
     def _split_generators(self, dl_manager):
         """Returns SplitGenerators."""
         train_file = osp.join(self.data_dir, "train", "train.tar.gz")
-        eval_file = osp.join(self.data_dir, "eval", "test.tar.gz")
+        eval_file = osp.join(self.data_dir, "eval", "eval.tar.gz")
         print(train_file, eval_file)
         data_dir = dl_manager.download_and_extract({
             "train": train_file, "eval": eval_file}

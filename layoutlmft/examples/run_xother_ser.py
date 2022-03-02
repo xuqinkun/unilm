@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 
-import layoutlmft.data.datasets.xvoucher
+import layoutlmft.data.datasets.xother
 import numpy as np
 import transformers
 from datasets import ClassLabel, load_dataset, load_metric
@@ -78,8 +78,8 @@ def main():
     # Set seed before initializing model.
     set_seed(training_args.seed)
     datasets = load_dataset(
-        os.path.abspath(layoutlmft.data.datasets.xvoucher.__file__),
-        f"xvoucher.{data_args.lang}",
+        os.path.abspath(layoutlmft.data.datasets.xother.__file__),
+        f"xother.{data_args.lang}",
         additional_langs=data_args.additional_langs,
         keep_in_memory=True,
         data_dir=data_args.data_dir
@@ -350,10 +350,10 @@ def count_data_size(dataset):
         buffer.add(filename)
     return len(buffer)
 
-
 def _mp_fn(index):
     # For xla_spawn (TPUs)
     main()
+    os.system('say "your program has finished"')
 
 
 if __name__ == "__main__":

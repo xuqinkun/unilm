@@ -7,28 +7,28 @@ import datasets
 from layoutlmft.data.utils import load_image, read_ner_label, normalize_bbox, merge_bbox, simplify_bbox
 from transformers import AutoTokenizer
 
+
 _LANG = ["zh", "de", "es", "fr", "en", "it", "ja", "pt"]
 logger = logging.getLogger(__name__)
 
-LABEL_MAP = {"凭证号": "ID", "发票类型": "TAX_TYPE", "日期": "DATE", "客户名称": "CUSTOMER", "供用商名称": "SUPPLIER",
-             "数量": "NUM", "税率": "TAX_RATE", "金额": "AMOUNT", "备注": "REMARK", "总金额": "TOTAL_AMOUNT", }
+LABEL_MAP = {'编号': "ID", '日期': "DATE", '金额': "AMOUNT",}
 
 
-class XInvoiceConfig(datasets.BuilderConfig):
+class XOtherConfig(datasets.BuilderConfig):
 
     def __init__(self, lang, addtional_langs=None, **kwargs):
-        super(XInvoiceConfig, self).__init__(**kwargs)
+        super(XOtherConfig, self).__init__(**kwargs)
         self.lang = lang
         self.addtional_langs = addtional_langs
 
 
-class XInvoice(datasets.GeneratorBasedBuilder):
-    BUILDER_CONFIGS = [XInvoiceConfig(name=f"xinvoice.{lang}", lang=lang) for lang in _LANG]
+class XVoucher(datasets.GeneratorBasedBuilder):
+    BUILDER_CONFIGS = [XOtherConfig(name=f"xother.{lang}", lang=lang) for lang in _LANG]
 
     tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
 
     def __init__(self, **kwargs):
-        super(XInvoice, self).__init__(**kwargs)
+        super(XVoucher, self).__init__(**kwargs)
         self.data_dir = kwargs['data_dir']
 
     def _info(self):
@@ -40,9 +40,8 @@ class XInvoice(datasets.GeneratorBasedBuilder):
                     "bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
                     "labels": datasets.Sequence(
                         datasets.features.ClassLabel(
-                            names=["O", "B-ID", "B-SUPPLIER", "B-CUSTOMER", "B-AMOUNT", "B-NUM", "B-TAX_TYPE",
-                                   "B-DATE", "B-TAX_RATE", "B-REMARK", "I-ID", "I-SUPPLIER", "I-CUSTOMER", "I-AMOUNT",
-                                   "I-NUM", "I-TAX_TYPE", "I-DATE", "I-TAX_RATE", "I-REMARK"]
+                            names=["O", "B-ID", "B-DATE", "B-AMOUNT",
+                                   "I-ID", "I-DATE", "I-AMOUNT" ]
                         )
                     ),
                     "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
@@ -50,8 +49,7 @@ class XInvoice(datasets.GeneratorBasedBuilder):
                         {
                             "start": datasets.Value("int64"),
                             "end": datasets.Value("int64"),
-                            "label": datasets.ClassLabel(names=["ID", "SUPPLIER", "CUSTOMER", "AMOUNT", "NUM",
-                                                                "TAX_TYPE", "DATE", "TAX_RATE", "REMARK"]),
+                            "label": datasets.ClassLabel(names=["ID", "DATE", "AMOUNT",]),
                         }
                     ),
                 }
@@ -118,9 +116,9 @@ class XInvoice(datasets.GeneratorBasedBuilder):
 
         for key in file_dict.keys():
             file_group = file_dict[key]
-            if 'ocr' not in file_group.keys():
+            if 'ocr' not in file_group or 'img' not in file_group:
                 print(key, file_group)
-                exit(1)
+                continue
             img_file = os.path.join(filepath, file_group['img'])
             ocr_filepath = os.path.join(filepath, file_group['ocr'])
             with open(ocr_filepath, 'r', encoding="utf-8") as f:
