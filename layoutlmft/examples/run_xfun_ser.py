@@ -4,14 +4,11 @@
 import logging
 import os
 import sys
-from dataclasses import dataclass, field
-from typing import Optional
-
-import numpy as np
-from datasets import ClassLabel, load_dataset, load_metric, Split
 
 import layoutlmft.data.datasets.xfun
+import numpy as np
 import transformers
+from datasets import ClassLabel, load_dataset, load_metric
 from layoutlmft.data import DataCollatorForKeyValueExtraction
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
 from layoutlmft.models.model_args import ModelArguments
@@ -27,7 +24,6 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version
-
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.5.0")
