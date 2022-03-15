@@ -109,6 +109,9 @@ class XContract(datasets.GeneratorBasedBuilder):
                     file_type = "ocr"
                 else:
                     file_type = "tag"
+            elif suffix == 'csv':
+                key = name.rsplit("-", 1)[0]
+                file_type = 'template'
             else:
                 file_type = "img"
             if key not in file_dict.keys():

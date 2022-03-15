@@ -3,8 +3,7 @@ import os
 import re
 
 
-def do_predict(label_list, test_dataset, tokenizer, train_dataset, training_args, true_predictions):
-    id_to_word = {v: k for k, v in tokenizer.vocab.items()}
+def do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predictions):
     # Save predictions
     # output_dir = os.path.join(training_args.output_dir, "predict",
     #                           "%d-%d" % (len(train_dataset), len(test_dataset)))
@@ -138,3 +137,77 @@ def count_data_size(dataset):
         filename, chunk_id = filename.rsplit("_", 1)
         buffer.add(filename)
     return len(buffer)
+
+
+def error_analysis(label_map, test_dataset, id_to_word, predictions):
+    input_ids = test_dataset['input_ids']
+    error_label_num = 0
+    error_entity_num = 0
+    miss_pred_entity = 0
+    non_entity_num = 0
+
+    pred_entity_write = []
+    true_entity_write = []
+    for i, (pred_labels, true_label_ids) in enumerate(zip(predictions, test_dataset['labels'])):
+        true_labels = [label_map[label_id] for label_id in true_label_ids]
+        pred_entity_span = parse_entity_span(input_ids[i], id_to_word, pred_labels)
+        true_entity_span = parse_entity_span(input_ids[i], id_to_word, true_labels)
+        pred_entity_write.append(pred_entity_span)
+        true_entity_write.append(true_entity_span)
+        # 1. 根据真实标注来统计预测标注错误的数目
+        for start_pos in true_entity_span:
+            true_label, true_entity = true_entity_span[start_pos]
+            if start_pos in pred_entity_span:
+                pred_label, pred_entity = pred_entity_span[start_pos]
+                # 标注错误
+                if pred_label != true_label:
+                    error_label_num += 1
+                # 实体与标注的不一致
+                elif pred_entity != true_entity:
+                    error_entity_num += 1
+            else:
+                # 实体标注缺失
+                miss_pred_entity += 1
+        # 2. 将非实体预测为实体的数目
+        for pos in pred_entity_span:
+            if pos not in true_entity_span:
+                non_entity_num += 1
+    # with open("/tmp/pred.txt", 'w') as f:
+    #     f.write("start_index\tlabel\tentity\n")
+    #     for entity_map in pred_entity_write:
+    #         for key, item in entity_map.items():
+    #             f.write(f"{key}\t\t{item[0]}\t{item[1]}\n")
+    # with open("/tmp/true.txt", 'w') as f:
+    #     f.write("start_index\tlabel\tentity\n")
+    #     for entity_map in true_entity_write:
+    #         for key, item in entity_map.items():
+    #             f.write(f"{key}\t\t{item[0]}\t{item[1]}\n")
+
+    total_error_num = error_label_num + error_entity_num + miss_pred_entity + non_entity_num
+    print("Statistics:")
+    print(f"error_label_num:{error_label_num}\t{(error_label_num * 100 / total_error_num):.2f}%\n"
+          f"error_entity_num:{error_entity_num}\t{(error_entity_num * 100 / total_error_num):.2f}%\n"
+          f"miss_pred_entity:{miss_pred_entity}\t{(miss_pred_entity * 100 / total_error_num):.2f}%\n"
+          f"non_entity_num:{non_entity_num}\t{(non_entity_num * 100 / total_error_num):.2f}%\n"
+          f"total_error_num:{total_error_num}")
+    pass
+
+
+def parse_entity_span(tokens, id_to_word, labels):
+    j = 0
+    entity_span = {}
+    while j < len(labels):
+        curr_label_name = labels[j].split("-")[-1]
+        entity_tokens = []
+        if labels[j].startswith("B"):
+            begin = j
+            while j < len(labels) and labels[j] != 'O' and \
+                    labels[j].split("-")[-1] == curr_label_name:
+                entity_tokens.append(id_to_word[tokens[j]])
+                j += 1
+            entity = "".join(entity_tokens)
+            entity_span[begin] = (curr_label_name, entity)
+            entity_tokens.clear()
+        else:
+            j += 1
+    return entity_span

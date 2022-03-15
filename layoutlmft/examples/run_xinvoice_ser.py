@@ -9,7 +9,7 @@ import layoutlmft.data.datasets.xinvoice
 import numpy as np
 import transformers
 from datasets import ClassLabel, load_dataset, load_metric
-from examples.utils import do_predict
+from utils import do_predict, error_analysis
 from layoutlmft.data import DataCollatorForKeyValueExtraction
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
 from layoutlmft.models.model_args import ModelArguments
@@ -276,9 +276,10 @@ def main():
 
         trainer.log_metrics("test", metrics)
         trainer.save_metrics("test", metrics)
-        do_predict(label_list, test_dataset, tokenizer,
-                   train_dataset, training_args,
-                   true_predictions)
+
+        id_to_word = {v: k for k, v in tokenizer.vocab.items()}
+        do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predictions)
+        error_analysis(label_list, test_dataset, id_to_word, true_predictions)
 
 
 def _mp_fn(index):
