@@ -3,7 +3,7 @@ import os
 import re
 
 
-def do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predictions):
+def do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predictions, full_doc=False):
     # Save predictions
     # output_dir = os.path.join(training_args.output_dir, "predict",
     #                           "%d-%d" % (len(train_dataset), len(test_dataset)))
@@ -11,10 +11,10 @@ def do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predict
     true_cloze_map = {}
     for i, _src in enumerate(test_dataset['id']):
         img_src, chunk_id = _src.rsplit("_", 1)
-        _, file_dir = img_src.rsplit("/", 1)
-        filename, suffix = file_dir.rsplit(".", 1)
-        if "合同" in filename:
-            key = filename.rsplit("_", 1)[0]
+        _, fullname = img_src.rsplit("/", 1)
+        filename, suffix = fullname.rsplit(".", 1)
+        if full_doc:
+            key = filename.split("_")[0]
         else:
             key = filename
         if key not in pred_cloze_map:
@@ -125,8 +125,11 @@ def parse_key_value(input_entity_id_list, label_list, id_to_word):
                         if entity.strip(' ') != '':
                             entity = entity.strip(' ')
                             break
-                label_entity_pair[true_label] = entity
-        idx += 1
+                if true_label not in label_entity_pair:
+                    label_entity_pair[true_label] = []
+                label_entity_pair[true_label].append(entity)
+        else:
+            idx += 1
     return label_entity_pair
 
 
