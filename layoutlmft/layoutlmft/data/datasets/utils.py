@@ -3,6 +3,7 @@ import os
 import json
 from layoutlmft.data.utils import normalize_bbox, merge_bbox, simplify_bbox
 
+
 def get_file_index(filepath):
     file_dict = {}
     for file in os.listdir(filepath):
@@ -72,6 +73,7 @@ def get_doc_items(tokenizer, lines, labels, label_map, image_size):
 
         tokenized_inputs, tags, label_name, entity_span = parse_text(tokenizer, line.copy(), image_size, line_id,
                                                                      tag_line_ids, id2label, label_map)
+
         if tags[0] != "O":
             entity_id_to_index_map[line_id] = len(entities)
             entities.append(
@@ -140,6 +142,7 @@ def parse_text(tokenizer, line, image_size, line_id, tag_line_ids, id2label, lab
             token_start = 0
             id_start = 0
             offset = 0
+            # 遍历到最后一个:才停止
             for i, token in enumerate(sentence_tokens):
                 if token:
                     if ":" == token:
@@ -153,17 +156,29 @@ def parse_text(tokenizer, line, image_size, line_id, tag_line_ids, id2label, lab
                     offset += len(token)
                 else:
                     id_start += 1
-            tags[token_start + 1] = f"B-{label_name.upper()}"
-            tags[token_start + 2:] = [f"I-{label_name.upper()}"] * (len(bbox) - token_start - 1)
+            try:
+                if token_start + 1 < len(tags):
+                    tags[token_start + 1] = f"B-{label_name.upper()}"
+                if token_start + 2 < len(tags):
+                    tags[token_start + 2:] = [f"I-{label_name.upper()}"] * (len(bbox) - token_start - 2)
+                # 如果冒号在文本末尾，那么表明当前行文本是key，而下一行文本才是对应的value
+                if token_start == len(tags) - 1:
+                    tag_line_ids.add(line_id + 1)
+                    id2label[line_id + 1] = id2label[line_id]
+            except IndexError as e:
+                raise e
             entity_span = (id_start, len(text))
         else:
             # 不包含引号则整行文本视作一个实体
             tags = [f"I-{label_name.upper()}"] * len(bbox)
             tags[0] = f"B-{label_name.upper()}"
             entity_span = (0, len(text))
+    assert len(tags) == len(tokenized_inputs["input_ids"]), "Not equal"
+
     with open("/tmp/data.txt", "a") as f:
         for token, label in zip(sentence_tokens, tags):
             f.write("%s\t%s\n" % (token, label))
         f.write("\n")
     tokenized_inputs.update({"bbox": bbox, "labels": tags})
+
     return tokenized_inputs, tags, label_name, entity_span
