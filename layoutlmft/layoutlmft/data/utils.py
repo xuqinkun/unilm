@@ -168,15 +168,8 @@ def _parse_ocr_file(im_shape, line, line_id, list_result, pos_label):
     return line_id + 1
 
 
-def read_ner_label(ocr_json_file, nlp_label_json):
-    with open(ocr_json_file, mode='r', encoding='utf8') as f_ocr:
-        ocr_data = json.load(f_ocr)
-    if type(ocr_data) == str:
-        ocr_data = json.loads(ocr_data)
+def read_ner_label(ocr_data, label_data):
     list_label_result = []
-
-    with open(nlp_label_json, 'r', encoding='utf8') as f_label:
-        label_data = json.load(f_label)
     im_shape = (label_data['imageHeight'], label_data['imageWidth'])
     for label in label_data['shapes']:
         label_name = label['label']

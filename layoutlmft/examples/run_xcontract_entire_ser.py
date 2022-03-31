@@ -8,6 +8,7 @@ import sys
 import layoutlmft.data.datasets.xcontract_entire
 import numpy as np
 import transformers
+from layoutlmft.data.datasets.xcontract_entire import LABEL_MAP as contract_entire_label_map
 from datasets import ClassLabel, load_dataset, load_metric
 from layoutlmft.data import DataCollatorForKeyValueExtraction
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
@@ -24,7 +25,7 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version
-from utils import do_predict, error_analysis
+from utils import do_predict, error_analysis, output_pred
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.5.0")
@@ -277,8 +278,11 @@ def main():
         trainer.log_metrics("test", metrics)
         trainer.save_metrics("test", metrics)
         id_to_word = {v: k for k, v in tokenizer.vocab.items()}
-        do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predictions, full_doc=True)
+        pred_cloze_map = do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predictions,
+                                    full_doc=True)
         error_analysis(label_list, test_dataset, id_to_word, true_predictions)
+
+        output_pred(list(contract_entire_label_map.values()), pred_cloze_map, data_args.data_dir)
 
 
 def _mp_fn(index):

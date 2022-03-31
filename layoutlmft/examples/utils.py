@@ -1,32 +1,42 @@
 # -*- coding: utf-8 -*-
 import os
 import re
+import pandas as pd
+
+COLON = ":"
+
+BOE = '▁'
+
+pattern_map = {
+    "AMOUNT": "((\d{1,9})(,?(\d{1,9}))*(\.\d{1,9})?)",
+    'SIGN_DATE': "\d{2}/\d{2}/\d{2,4}|\d{2,4}-\d{2}-\d{2}|\d{2,4}年\d{2}月\d{2}日|\d{2,4}/\d*",
+}
 
 
 def do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predictions, full_doc=False):
-    # Save predictions
-    # output_dir = os.path.join(training_args.output_dir, "predict",
-    #                           "%d-%d" % (len(train_dataset), len(test_dataset)))
     pred_cloze_map = {}
     true_cloze_map = {}
-    for i, _src in enumerate(test_dataset['id']):
-        img_src, chunk_id = _src.rsplit("_", 1)
-        _, fullname = img_src.rsplit("/", 1)
-        filename, suffix = fullname.rsplit(".", 1)
+    for doc_key, input_ids, pred_labels, labels in zip(test_dataset['id'], test_dataset['input_ids'], true_predictions,
+                                                       test_dataset['labels']):
+        fullname, chunk_id = doc_key.rsplit("_", 1)
         if full_doc:
-            key = filename.split("_")[0]
+            key = fullname.split("_")[0]
         else:
-            key = filename
+            key = fullname
         if key not in pred_cloze_map:
             pred_cloze_map[key] = {}
             true_cloze_map[key] = {}
-        true_labels = [label_list[i] for i in test_dataset['labels'][i]]
-        pred_labels = true_predictions[i]
-        input_ids = test_dataset['input_ids'][i]
+        true_labels = [label_list[l] for l in labels]
         true_label_entity_pair = parse_key_value(input_ids, true_labels, id_to_word)
         pred_label_entity_pair = parse_key_value(input_ids, pred_labels, id_to_word)
-        pred_cloze_map[key].update(pred_label_entity_pair)
-        true_cloze_map[key].update(true_label_entity_pair)
+        for k in pred_label_entity_pair:
+            if k not in pred_cloze_map[key]:
+                pred_cloze_map[key][k] = []
+            pred_cloze_map[key][k] += pred_label_entity_pair[k]
+        for k in true_label_entity_pair:
+            if k not in true_cloze_map[key]:
+                true_cloze_map[key][k] = []
+            true_cloze_map[key][k] += true_label_entity_pair[k]
 
     entire_doc_num = count_entire_doc(pred_cloze_map, true_cloze_map)
     total_label_num, correct_label_num, pred_label_num = count_correct_label(pred_cloze_map, true_cloze_map)
@@ -41,7 +51,7 @@ def do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predict
     test_pages = count_data_size(test_dataset)
 
     accurate = entire_doc_num / total_doc_num
-    print('entire_filed_doc=%d, total_doc=%d percent=%.2f%%' % (
+    print('entire_field_doc=%d, total_doc=%d percent=%.2f%%\n' % (
         entire_doc_num, total_doc_num, 100 * accurate
     ))
     print("Train num=%d, Test num=%d" % (train_pages, test_pages))
@@ -50,6 +60,11 @@ def do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predict
     print("Recall: %.2f%%" % recall)
     print("Precision: %.2f%%" % precision)
     print("F1: %.2f%%" % f1)
+    return pred_cloze_map
+
+
+
+
 
 
 def write_ret(img_src, output_dir, key, filename):
@@ -119,12 +134,18 @@ def parse_key_value(input_entity_id_list, label_list, id_to_word):
                     tmp_entity.append(word)
             if len(tmp_entity) != 0:
                 entity = "".join(tmp_entity)
-                if '▁' in entity:
-                    candidate_entities = re.split('[▁:]', entity)
-                    for entity in candidate_entities:
-                        if entity.strip(' ') != '':
-                            entity = entity.strip(' ')
-                            break
+                if BOE in entity:
+                    entity = entity.replace(BOE, " ")
+                if true_label in pattern_map:
+                    pattern = pattern_map[true_label]
+                    candidates = re.compile(pattern).findall(entity)
+                    if len(candidates) != 0:
+                        if isinstance(candidates[0], tuple):
+                            entity = candidates[0][0]
+                        else:
+                            entity = candidates[0]
+                if COLON in entity:
+                    entity = entity.split(COLON, 1)[-1]
                 if true_label not in label_entity_pair:
                     label_entity_pair[true_label] = []
                 label_entity_pair[true_label].append(entity)
@@ -214,3 +235,40 @@ def parse_entity_span(tokens, id_to_word, labels):
         else:
             j += 1
     return entity_span
+
+
+def _make_dir_if_not_exists(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+
+def _copy_file(src, dst):
+    with open(src, "rb") as f:
+        data = f.read()
+    with open(dst, "wb") as f:
+        f.write(data)
+
+def output_pred(columns, pred_cloze_map, data_dir):
+    data = []
+    index = []
+    src_file = "eval.tar.gz"
+    eval_src = os.path.join(data_dir, "eval", src_file)
+    parent_dir, doc_type = data_dir.rsplit("/", 1)
+    pred_dir = os.path.join(parent_dir, "pred", doc_type)
+    _make_dir_if_not_exists(pred_dir)
+    _copy_file(eval_src, os.path.join(pred_dir, src_file))
+    for key in pred_cloze_map:
+        index.append(key)
+        field_map = pred_cloze_map[key]
+        row_data = []
+        # 读取一行
+        for column_name in columns:
+            if column_name in field_map:
+                row_data.append(";".join(field_map[column_name]))
+            else:
+                row_data.append("")
+        data.append(row_data)
+    df = pd.DataFrame(data=data, index=index, columns=columns)
+    output_csv = os.path.join(pred_dir, "pred.csv")
+    df.to_csv(output_csv, encoding="GBK")
+    print(output_csv)
