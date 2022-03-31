@@ -6,7 +6,7 @@ __pycache__/
 # C extensions
 *.so
 layoutlmft/examples/runs
-
+runs
 # Distribution / packaging
 .Python
 build/
