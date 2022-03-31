@@ -275,8 +275,6 @@ def main():
             for prediction, label in zip(predictions, pred_entity_labels)
         ]
 
-        trainer.log_metrics("test", metrics)
-        trainer.save_metrics("test", metrics)
         id_to_word = {v: k for k, v in tokenizer.vocab.items()}
         pred_cloze_map = do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predictions,
                                     full_doc=True)

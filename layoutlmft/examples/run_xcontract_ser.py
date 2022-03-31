@@ -8,6 +8,9 @@ import sys
 import layoutlmft.data.datasets.xcontract
 import numpy as np
 import transformers
+import examples.utils.seqeval
+
+from layoutlmft.data.datasets.xcontract import LABEL_MAP as label_map
 from datasets import ClassLabel, load_dataset, load_metric
 from layoutlmft.data import DataCollatorForKeyValueExtraction
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
@@ -24,7 +27,7 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version
-from utils import do_predict, error_analysis
+from examples.utils.statistics import do_predict, error_analysis, output_pred, load_model
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.5.0")
@@ -43,7 +46,7 @@ def main():
 
     # Detecting last checkpoint.
     last_checkpoint = None
-    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
+    if os.path.isdir(training_args.output_dir)and not training_args.overwrite_output_dir:
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
         if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
             raise ValueError(
@@ -186,7 +189,9 @@ def main():
     )
 
     # Metrics
-    metric = load_metric("seqeval")
+    from datasets.utils.file_utils import DownloadConfig
+    download_config = DownloadConfig(local_files_only=True)
+    metric = load_metric(os.path.abspath(examples.utils.seqeval.__file__), download_config=download_config)
 
     def compute_metrics(p):
         predictions, labels = p
@@ -264,10 +269,10 @@ def main():
     # Predict
     if training_args.do_predict:
         logger.info("*** Predict ***")
-
+        if not training_args.overwrite_output_dir:
+            load_model(last_checkpoint, trainer.model)
         predictions, pred_entity_labels, metrics = trainer.predict(test_dataset)
         predictions = np.argmax(predictions, axis=2)
-
         # Remove ignored index (special tokens)
         true_predictions = [
             [label_list[p] for (p, l) in zip(prediction, label) if l != -100]
@@ -277,8 +282,11 @@ def main():
         trainer.log_metrics("test", metrics)
         trainer.save_metrics("test", metrics)
         id_to_word = {v: k for k, v in tokenizer.vocab.items()}
-        do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predictions)
+        pred_cloze_map = do_predict(label_list=label_list, test_dataset=test_dataset, id_to_word=id_to_word,
+                                    train_dataset=datasets["train"], true_predictions=true_predictions)
         error_analysis(label_list, test_dataset, id_to_word, true_predictions)
+
+        output_pred(list(label_map.values()), pred_cloze_map, data_args.data_dir)
 
 
 def _mp_fn(index):

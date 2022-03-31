@@ -2,18 +2,23 @@
 import os
 import re
 import pandas as pd
-
-COLON = ":"
+import torch
 
 BOE = '▁'
+COLON = ":"
+WEIGHTS_NAME = "pytorch_model.bin"
 
 pattern_map = {
     "AMOUNT": "((\d{1,9})(,?(\d{1,9}))*(\.\d{1,9})?)",
     'SIGN_DATE': "\d{2}/\d{2}/\d{2,4}|\d{2,4}-\d{2}-\d{2}|\d{2,4}年\d{2}月\d{2}日|\d{2,4}/\d*",
 }
 
+def load_model(checkpoint, model):
+    state_dict = torch.load(os.path.join(checkpoint, WEIGHTS_NAME))
+    model.load_state_dict(state_dict)
 
-def do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predictions, full_doc=False):
+
+def do_predict(label_list, test_dataset, id_to_word, true_predictions, train_dataset=None, full_doc=False):
     pred_cloze_map = {}
     true_cloze_map = {}
     for doc_key, input_ids, pred_labels, labels in zip(test_dataset['id'], test_dataset['input_ids'], true_predictions,
@@ -61,11 +66,6 @@ def do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predict
     print("Precision: %.2f%%" % precision)
     print("F1: %.2f%%" % f1)
     return pred_cloze_map
-
-
-
-
-
 
 def write_ret(img_src, output_dir, key, filename):
     with open(img_src, "rb") as f:
@@ -120,37 +120,44 @@ def count_correct_label(pred_cloze_map, true_cloze_map):
 
 
 def parse_key_value(input_entity_id_list, label_list, id_to_word):
+    """提取键值对"""
     idx = 0
     label_entity_pair = {}
     while idx < len(input_entity_id_list):
-        if label_list[idx].startswith("B"):
-            true_label = label_list[idx].split("-", 1)[-1]
-            tmp_entity = []
-            while idx < len(input_entity_id_list) and label_list[idx].split("-", 1)[-1] == true_label:
-                word_id = input_entity_id_list[idx]
+        # 实体标签以B开头
+        try:
+            if label_list[idx].startswith("B"):
+                true_label = label_list[idx].split("-", 1)[-1]
+                tmp_entity = []
+                while idx < len(input_entity_id_list) and label_list[idx].split("-", 1)[-1] == true_label:
+                    word_id = input_entity_id_list[idx]
+                    idx += 1
+                    # 6代表实体起点
+                    if word_id != 6:
+                        word = id_to_word[word_id]
+                        tmp_entity.append(word)
+                if len(tmp_entity) != 0:
+                    entity = "".join(tmp_entity)
+                    if BOE in entity:
+                        entity = entity.replace(BOE, " ")
+                    if true_label in pattern_map:
+                        # 使用正则过滤输出
+                        pattern = pattern_map[true_label]
+                        candidates = re.compile(pattern).findall(entity)
+                        if len(candidates) != 0:
+                            if isinstance(candidates[0], tuple):
+                                entity = candidates[0][0]
+                            else:
+                                entity = candidates[0]
+                    if COLON in entity:
+                        entity = entity.split(COLON, 1)[-1]
+                    if true_label not in label_entity_pair:
+                        label_entity_pair[true_label] = []
+                    label_entity_pair[true_label].append(entity)
+            else:
                 idx += 1
-                if word_id != 6:
-                    word = id_to_word[word_id]
-                    tmp_entity.append(word)
-            if len(tmp_entity) != 0:
-                entity = "".join(tmp_entity)
-                if BOE in entity:
-                    entity = entity.replace(BOE, " ")
-                if true_label in pattern_map:
-                    pattern = pattern_map[true_label]
-                    candidates = re.compile(pattern).findall(entity)
-                    if len(candidates) != 0:
-                        if isinstance(candidates[0], tuple):
-                            entity = candidates[0][0]
-                        else:
-                            entity = candidates[0]
-                if COLON in entity:
-                    entity = entity.split(COLON, 1)[-1]
-                if true_label not in label_entity_pair:
-                    label_entity_pair[true_label] = []
-                label_entity_pair[true_label].append(entity)
-        else:
-            idx += 1
+        except KeyError as e:
+            raise e
     return label_entity_pair
 
 
@@ -172,10 +179,10 @@ def error_analysis(label_map, test_dataset, id_to_word, predictions):
 
     pred_entity_write = []
     true_entity_write = []
-    for i, (pred_labels, true_label_ids) in enumerate(zip(predictions, test_dataset['labels'])):
+    for input_id, pred_labels, true_label_ids in zip(input_ids, predictions, test_dataset['labels']):
         true_labels = [label_map[label_id] for label_id in true_label_ids]
-        pred_entity_span = parse_entity_span(input_ids[i], id_to_word, pred_labels)
-        true_entity_span = parse_entity_span(input_ids[i], id_to_word, true_labels)
+        pred_entity_span = parse_entity_span(input_id, id_to_word, pred_labels)
+        true_entity_span = parse_entity_span(input_id, id_to_word, true_labels)
         pred_entity_write.append(pred_entity_span)
         true_entity_write.append(true_entity_span)
         # 1. 根据真实标注来统计预测标注错误的数目
@@ -227,7 +234,13 @@ def parse_entity_span(tokens, id_to_word, labels):
             begin = j
             while j < len(labels) and labels[j] != 'O' and \
                     labels[j].split("-")[-1] == curr_label_name:
-                entity_tokens.append(id_to_word[tokens[j]])
+                try:
+                    word = id_to_word[tokens[j]]
+                    entity_tokens.append(word)
+                except TypeError as e:
+                    raise e
+                except Exception as e:
+                    raise e
                 j += 1
             entity = "".join(entity_tokens)
             entity_span[begin] = (curr_label_name, entity)
@@ -247,6 +260,8 @@ def _copy_file(src, dst):
         data = f.read()
     with open(dst, "wb") as f:
         f.write(data)
+
+
 
 def output_pred(columns, pred_cloze_map, data_dir):
     data = []
@@ -270,5 +285,5 @@ def output_pred(columns, pred_cloze_map, data_dir):
         data.append(row_data)
     df = pd.DataFrame(data=data, index=index, columns=columns)
     output_csv = os.path.join(pred_dir, "pred.csv")
-    df.to_csv(output_csv, encoding="GBK")
+    df.to_csv(output_csv, encoding="utf_8_sig")
     print(output_csv)
