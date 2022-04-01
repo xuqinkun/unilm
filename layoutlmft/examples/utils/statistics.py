@@ -23,8 +23,8 @@ def do_predict(label_list, datasets, id_to_word, true_predictions, full_doc=Fals
     true_cloze_map = {}
     test_dataset = datasets["validation"]
     train_dataset = datasets["train"]
-    for doc_key, input_ids, pred_labels, labels in zip(test_dataset['id'], test_dataset['input_ids'], true_predictions,
-                                                       test_dataset['labels']):
+    for doc_key, input_ids, pred_labels, labels in zip(test_dataset['id'], test_dataset['input_ids'],
+                                                       true_predictions, test_dataset['labels']):
         fullname, chunk_id = doc_key.rsplit("_", 1)
         if full_doc:
             key = fullname.split("_")[0]
@@ -34,19 +34,15 @@ def do_predict(label_list, datasets, id_to_word, true_predictions, full_doc=Fals
             pred_cloze_map[key] = {}
             true_cloze_map[key] = {}
         true_labels = [label_list[l] for l in labels]
+        # 提取键值对
         true_label_entity_pair = parse_key_value(input_ids, true_labels, id_to_word)
         pred_label_entity_pair = parse_key_value(input_ids, pred_labels, id_to_word)
-        for k in pred_label_entity_pair:
-            if k not in pred_cloze_map[key]:
-                pred_cloze_map[key][k] = []
-            pred_cloze_map[key][k] += pred_label_entity_pair[k]
-        for k in true_label_entity_pair:
-            if k not in true_cloze_map[key]:
-                true_cloze_map[key][k] = []
-            true_cloze_map[key][k] += true_label_entity_pair[k]
+        # 如果需要提取完整的文档，则需要将每次获取的键值对追加到同一篇文档中
+        _assemble(key, pred_cloze_map, pred_label_entity_pair)
+        _assemble(key, true_cloze_map, true_label_entity_pair)
 
     entire_doc_num = count_entire_doc(pred_cloze_map, true_cloze_map)
-    total_label_num, correct_label_num, pred_label_num = count_correct_label(pred_cloze_map, true_cloze_map)
+    total_label_num, correct_label_num, pred_label_num = compute_metric(pred_cloze_map, true_cloze_map)
     total_doc_num = len(pred_cloze_map)
 
     # 计算recall，precision，f1
@@ -69,6 +65,14 @@ def do_predict(label_list, datasets, id_to_word, true_predictions, full_doc=Fals
     print("F1: %.2f%%" % f1)
     return pred_cloze_map
 
+
+def _assemble(key, cloze_map, label_entity_pair):
+    for k in label_entity_pair:
+        if k not in cloze_map[key]:
+            cloze_map[key][k] = set()
+        cloze_map[key][k].update(label_entity_pair[k])
+
+
 def write_ret(img_src, output_dir, key, filename):
     with open(img_src, "rb") as f:
         data = f.read()
@@ -80,45 +84,51 @@ def write_ret(img_src, output_dir, key, filename):
 
 
 def count_entire_doc(pred_cloze_map, true_cloze_map):
+    """完整文档预测结果统计，即整个文档中的所有实体标注正确将计数+1"""
     cnt = 0
     for key, true_pairs in true_cloze_map.items():
-        correct_filed_num = 0
+        correct_field_num = 0
         if key not in pred_cloze_map:
             continue
         pred_pairs = pred_cloze_map[key]
         pred_labels = set([k.split("-")[-1] for k, _ in pred_pairs.items() if k != 'O'])
         true_labels = set([k.split("-")[-1] for k, _ in true_pairs.items() if k != 'O'])
-
+        # 如果预测出得标签和真实标签不一致则跳过
+        if pred_labels != true_labels:
+            continue
+        # 计算预测正确的实体数
         for k, v in true_pairs.items():
             if k == 'O' or k not in pred_pairs:
                 continue
             if pred_pairs[k] == v:
-                correct_filed_num += 1
-        if correct_filed_num == len(true_labels) and len(pred_labels) == len(true_labels):
+                correct_field_num += 1
+        # 预测正确的实体数等于真实标记的实体数，则计数+1
+        if correct_field_num == len(true_labels):
             cnt += 1
     return cnt
 
 
-def count_correct_label(pred_cloze_map, true_cloze_map):
-    correct_label_num = 0
-    total_label_num = 0
-    pred_label_num = 0
+def compute_metric(pred_cloze_map, true_cloze_map):
+    true_total = 0      # 真实实体总数
+    pred_correct = 0    # 预测正确的实体数
+    pred_total = 0      # 预测出的实体数
     for key, true_item in true_cloze_map.items():
         for k, v in true_item.items():
             if k != 'O':
-                total_label_num += 1
+                true_total += 1
         if key not in pred_cloze_map:
             continue
-        pred_filed = pred_cloze_map[key]
-        for k, v in pred_filed.items():
+        pred_fields = pred_cloze_map[key]
+        # 统计预测实体数
+        for k, v in pred_fields.items():
             if k != 'O':
-                pred_label_num += 1
+                pred_total += 1
         for k, v in true_item.items():
-            if k == 'O' or k not in pred_filed:
+            if k == 'O' or k not in pred_fields:
                 continue
-            if pred_filed[k] == v:
-                correct_label_num += 1
-    return total_label_num, correct_label_num, pred_label_num
+            if pred_fields[k] == v:
+                pred_correct += 1
+    return true_total, pred_correct, pred_total
 
 
 def parse_key_value(input_entity_id_list, label_list, id_to_word):
@@ -154,8 +164,9 @@ def parse_key_value(input_entity_id_list, label_list, id_to_word):
                     if COLON in entity:
                         entity = entity.split(COLON, 1)[-1]
                     if true_label not in label_entity_pair:
-                        label_entity_pair[true_label] = []
-                    label_entity_pair[true_label].append(entity)
+                        # 使用set去除重复值
+                        label_entity_pair[true_label] = set()
+                    label_entity_pair[true_label].add(entity)
             else:
                 idx += 1
         except KeyError as e:
@@ -254,7 +265,7 @@ def parse_entity_span(tokens, id_to_word, labels):
 
 def _make_dir_if_not_exists(path):
     if not os.path.exists(path):
-        os.makedirs(path)
+        os.mkdir(path)
 
 
 def _copy_file(src, dst):
