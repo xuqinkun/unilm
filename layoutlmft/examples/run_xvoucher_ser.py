@@ -8,7 +8,9 @@ import sys
 import layoutlmft.data.datasets.xvoucher
 import numpy as np
 import transformers
-from datasets import ClassLabel, load_dataset, load_metric
+
+from layoutlmft.data.datasets.xvoucher import LABEL_MAP as label_map
+from datasets import ClassLabel, load_dataset
 from layoutlmft.data import DataCollatorForKeyValueExtraction
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
 from layoutlmft.models.model_args import ModelArguments
@@ -24,7 +26,7 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version
-from utils import do_predict, error_analysis
+from examples.utils.statistics import do_predict, error_analysis, output_pred, load_model
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.5.0")
@@ -43,7 +45,7 @@ def main():
 
     # Detecting last checkpoint.
     last_checkpoint = None
-    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
+    if os.path.isdir(training_args.output_dir) and not training_args.overwrite_output_dir:
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
         if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
             raise ValueError(
@@ -185,43 +187,6 @@ def main():
         max_length=512,
     )
 
-    # Metrics
-    metric = load_metric("seqeval")
-
-    def compute_metrics(p):
-        predictions, labels = p
-        predictions = np.argmax(predictions, axis=2)
-
-        # Remove ignored index (special tokens)
-        true_predictions = [
-            [label_list[p] for (p, l) in zip(prediction, label) if l != -100]
-            for prediction, label in zip(predictions, labels)
-        ]
-        true_labels = [
-            [label_list[l] for (p, l) in zip(prediction, label) if l != -100]
-            for prediction, label in zip(predictions, labels)
-        ]
-
-        # results = metric.compute(predictions=true_predictions, references=true_labels, mode="strict")
-        results = metric.compute(predictions=true_predictions, references=true_labels)
-        if data_args.return_entity_level_metrics:
-            # Unpack nested dictionaries
-            final_results = {}
-            for key, value in results.items():
-                if isinstance(value, dict):
-                    for n, v in value.items():
-                        final_results[f"{key}_{n}"] = v
-                else:
-                    final_results[key] = value
-            return final_results
-        else:
-            return {
-                "precision": results["overall_precision"],
-                "recall": results["overall_recall"],
-                "f1": results["overall_f1"],
-                "accuracy": results["overall_accuracy"],
-            }
-
     # Initialize our Trainer
     trainer = XfunSerTrainer(
         model=model,
@@ -230,23 +195,23 @@ def main():
         eval_dataset=eval_dataset if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=data_collator,
-        compute_metrics=compute_metrics,
+        # compute_metrics=compute_metrics,
     )
 
     # Training
     if training_args.do_train:
         checkpoint = last_checkpoint if last_checkpoint else None
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
-        metrics = train_result.metrics
+        # metrics = train_result.metrics
         trainer.save_model()  # Saves the tokenizer too for easy upload
 
         max_train_samples = (
             data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
         )
-        metrics["train_samples"] = min(max_train_samples, len(train_dataset))
-
-        trainer.log_metrics("train", metrics)
-        trainer.save_metrics("train", metrics)
+        # metrics["train_samples"] = min(max_train_samples, len(train_dataset))
+        #
+        # trainer.log_metrics("train", metrics)
+        # trainer.save_metrics("train", metrics)
         trainer.save_state()
 
     # Evaluation
@@ -264,7 +229,7 @@ def main():
     # Predict
     if training_args.do_predict:
         logger.info("*** Predict ***")
-
+        load_model(last_checkpoint, trainer.model)
         predictions, pred_entity_labels, metrics = trainer.predict(test_dataset)
         predictions = np.argmax(predictions, axis=2)
 
@@ -278,9 +243,12 @@ def main():
         trainer.save_metrics("test", metrics)
 
         id_to_word = {v: k for k, v in tokenizer.vocab.items()}
-        do_predict(label_list, test_dataset, id_to_word, train_dataset, true_predictions)
+
+        pred_cloze_map = do_predict(label_list=label_list, datasets=datasets, id_to_word=id_to_word,
+                                    true_predictions=true_predictions)
         error_analysis(label_list, test_dataset, id_to_word, true_predictions)
 
+        output_pred(list(label_map.values()), pred_cloze_map, data_args.data_dir)
 
 def _mp_fn(index):
     # For xla_spawn (TPUs)

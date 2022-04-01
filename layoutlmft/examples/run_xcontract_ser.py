@@ -282,8 +282,8 @@ def main():
         trainer.log_metrics("test", metrics)
         trainer.save_metrics("test", metrics)
         id_to_word = {v: k for k, v in tokenizer.vocab.items()}
-        pred_cloze_map = do_predict(label_list=label_list, test_dataset=test_dataset, id_to_word=id_to_word,
-                                    train_dataset=datasets["train"], true_predictions=true_predictions)
+        pred_cloze_map = do_predict(label_list=label_list, datasets=datasets, id_to_word=id_to_word,
+                                    true_predictions=true_predictions)
         error_analysis(label_list, test_dataset, id_to_word, true_predictions)
 
         output_pred(list(label_map.values()), pred_cloze_map, data_args.data_dir)

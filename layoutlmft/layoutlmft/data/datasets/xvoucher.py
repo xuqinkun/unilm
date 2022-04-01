@@ -1,18 +1,21 @@
 # -*- coding: utf-8 -*-
-import json
 import logging
 import os
 import os.path as osp
+
 import datasets
-from layoutlmft.data.utils import load_image, read_ner_label, normalize_bbox, merge_bbox, simplify_bbox
+from layoutlmft.data.utils import load_image, read_ner_label
 from transformers import AutoTokenizer
 
+from .utils import get_file_index, get_doc_items, get_lines, load_json
 
 _LANG = ["zh", "de", "es", "fr", "en", "it", "ja", "pt"]
 logger = logging.getLogger(__name__)
 
 LABEL_MAP = {'编号': "ID", '科目': 'SUBJECT', '日期': "DATE", '金额': "AMOUNT", '摘要': "ABSTRACT"}
 
+if "DEBUG" in os.environ:
+    print(__file__.rsplit("/", 1)[0])
 
 class XVoucherConfig(datasets.BuilderConfig):
 
@@ -28,8 +31,13 @@ class XVoucher(datasets.GeneratorBasedBuilder):
     tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
 
     def __init__(self, **kwargs):
-        super(XVoucher, self).__init__(**kwargs)
         self.data_dir = kwargs['data_dir']
+        self.labels = ["O"]
+        self.label_names = list(LABEL_MAP.values())
+        for label in self.label_names:
+            self.labels.append(f"B-{label}")
+            self.labels.append(f"I-{label}")
+        super(XVoucher, self).__init__(**kwargs)
 
     def _info(self):
         return datasets.DatasetInfo(
@@ -40,8 +48,7 @@ class XVoucher(datasets.GeneratorBasedBuilder):
                     "bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
                     "labels": datasets.Sequence(
                         datasets.features.ClassLabel(
-                            names=["O", "B-ID", "B-SUBJECT", "B-DATE", "B-AMOUNT", "B-ABSTRACT",
-                                   "I-ID", "I-SUBJECT", "I-DATE", "I-AMOUNT", "I-ABSTRACT", ]
+                            names=self.labels
                         )
                     ),
                     "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
@@ -49,7 +56,7 @@ class XVoucher(datasets.GeneratorBasedBuilder):
                         {
                             "start": datasets.Value("int64"),
                             "end": datasets.Value("int64"),
-                            "label": datasets.ClassLabel(names=["ID", "SUBJECT", "DATE", "AMOUNT", "ABSTRACT"]),
+                            "label": datasets.ClassLabel(names=self.label_names),
                         }
                     ),
                 }
@@ -96,109 +103,24 @@ class XVoucher(datasets.GeneratorBasedBuilder):
 
         这里就是根据自己的数据集来整理
         """
-        file_dict = {}
-        for file in os.listdir(filepath):
-            if file.startswith(".") or "." not in file:
-                continue
-            name, suffix = file.rsplit(".", 1)
-            key = name
-            if suffix == "json":
-                if "ocr" in name:
-                    key = name.rsplit("-", 1)[0]
-                    file_type = "ocr"
-                else:
-                    file_type = "tag"
-            else:
-                file_type = "img"
-            if key not in file_dict.keys():
-                file_dict[key] = {}
-            file_dict[key][file_type] = file
+        file_dict = get_file_index(filepath)
 
-        for key in file_dict.keys():
-            file_group = file_dict[key]
-            if 'ocr' not in file_group or 'img' not in file_group:
-                print(key, file_group)
+        for key, file_group in file_dict.items():
+            if 'ocr' not in file_group or "img" not in file_group:
+                print(key)
                 continue
-            img_file = os.path.join(filepath, file_group['img'])
-            ocr_filepath = os.path.join(filepath, file_group['ocr'])
-            with open(ocr_filepath, 'r', encoding="utf-8") as f:
-                ocr_data = json.load(f)
-            if type(ocr_data) == str:
-                ocr_data = json.loads(ocr_data)
-            image, size = load_image(img_file)
+            ocr_data = load_json(os.path.join(filepath, file_group['ocr']))
+            image, image_shape = load_image(os.path.join(filepath, file_group['img']))
 
             if 'tag' in file_group.keys():
-                labels = read_ner_label(ocr_filepath, os.path.join(filepath, file_group['tag']))
+                label_data = load_json(os.path.join(filepath, file_group['tag']))
+                labels = read_ner_label(ocr_data, label_data)
             else:
                 labels = None
-            lines = []
-            entity_id_to_index_map = {}
-            for _page in ocr_data["pages"]:
-                for _table in _page['table']:
-                    if len(_table["lines"]) != 0:
-                        lines += _table["lines"]
-                    else:
-                        for cell in _table["form_blocks"]:
-                            lines += cell["lines"]
-            entities = []
-            tokenized_doc = {"input_ids": [], "bbox": [], "labels": []}
-            tag_line_ids, id2label = _parse_labels(labels)
-            guid = img_file
-            for line_id, line in enumerate(lines):
-                if len(line["text"].strip()) == 0:
-                    continue
-                tokenized_inputs = self.tokenizer(
-                    line["text"],
-                    add_special_tokens=False,
-                    return_offsets_mapping=True,
-                    return_attention_mask=False,
-                )
+            lines = get_lines(ocr_data)
 
-                text_length = 0
-                ocr_length = 0
-                bbox = []
-                last_box = None
-                for token_id, offset in zip(tokenized_inputs["input_ids"], tokenized_inputs["offset_mapping"]):
-                    if token_id == 6:
-                        bbox.append(None)
-                        continue
-                    text_length += offset[1] - offset[0]
-                    tmp_box = []
-                    while ocr_length < text_length:
-                        ocr_word = line["char_candidates"].pop(0)
-                        box = line['char_polygons'].pop(0)
-                        ocr_length += len(
-                            self.tokenizer._tokenizer.normalizer.normalize_str(ocr_word[0].strip())
-                        )
-                        tmp_box.append(simplify_bbox(box))
-                    if len(tmp_box) == 0:
-                        tmp_box = last_box
-                    bbox.append(normalize_bbox(merge_bbox(tmp_box), size))
-                    last_box = tmp_box
-                bbox = [
-                    [bbox[i + 1][0], bbox[i + 1][1], bbox[i + 1][0], bbox[i + 1][1]] if b is None else b
-                    for i, b in enumerate(bbox)
-                ]
-                if line_id not in tag_line_ids:
-                    label_name = "O"
-                    tags = [label_name] * len(bbox)
-                else:
-                    label_name = LABEL_MAP[id2label[line_id]]
-                    tags = [f"I-{label_name.upper()}"] * len(bbox)
-                    tags[0] = f"B-{label_name.upper()}"
-                tokenized_inputs.update({"bbox": bbox, "labels": tags})
+            tokenized_doc, entities = get_doc_items(self.tokenizer, lines, labels, LABEL_MAP, image_shape)
 
-                if tags[0] != "O":
-                    entity_id_to_index_map[line_id] = len(entities)
-                    entities.append(
-                        {
-                            "start": len(tokenized_doc["input_ids"]),
-                            "end": len(tokenized_doc["input_ids"]) + len(tokenized_inputs["input_ids"]),
-                            "label": label_name.upper(),
-                        }
-                    )
-                for i in tokenized_doc:
-                    tokenized_doc[i] = tokenized_doc[i] + tokenized_inputs[i]
             chunk_size = 512
             for chunk_id, index in enumerate(range(0, len(tokenized_doc["input_ids"]), chunk_size)):
                 item = {}
@@ -218,25 +140,9 @@ class XVoucher(datasets.GeneratorBasedBuilder):
 
                 item.update(
                     {
-                        "id": f"{guid}_{chunk_id}",
+                        "id": f"{key}_{chunk_id}",
                         "image": image,
                         "entities": entities_in_this_span,
                     }
                 )
-                key = f"{guid}_{chunk_id}"
-                # if len(tag_line_ids) == 0:
-                #     item["labels"] = []
-                yield key, item
-
-
-def _parse_labels(labels):
-    tag_line_ids = set()
-    id2label = {}
-    if labels:
-        for label_name, words in labels:
-            if len(words) == 0:
-                continue
-            line_id = words[0].line_id
-            tag_line_ids.add(line_id)
-            id2label[line_id] = label_name
-    return tag_line_ids, id2label
+                yield f"{key}_{chunk_id}", item

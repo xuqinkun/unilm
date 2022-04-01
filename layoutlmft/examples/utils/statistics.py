@@ -18,9 +18,11 @@ def load_model(checkpoint, model):
     model.load_state_dict(state_dict)
 
 
-def do_predict(label_list, test_dataset, id_to_word, true_predictions, train_dataset=None, full_doc=False):
+def do_predict(label_list, datasets, id_to_word, true_predictions, full_doc=False):
     pred_cloze_map = {}
     true_cloze_map = {}
+    test_dataset = datasets["validation"]
+    train_dataset = datasets["train"]
     for doc_key, input_ids, pred_labels, labels in zip(test_dataset['id'], test_dataset['input_ids'], true_predictions,
                                                        test_dataset['labels']):
         fullname, chunk_id = doc_key.rsplit("_", 1)

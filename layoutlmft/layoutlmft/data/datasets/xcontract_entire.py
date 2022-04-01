@@ -35,15 +35,18 @@ class XContractEntire(datasets.GeneratorBasedBuilder):
     tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
 
     def __init__(self, **kwargs):
-        super(XContractEntire, self).__init__(**kwargs)
         self.data_dir = kwargs['data_dir']
+        self.label_names = list(LABEL_MAP.values())
+        self.labels = ["O"]
+        for label in self.label_names:
+            self.labels.append(f"B-{label}")
+            self.labels.append(f"I-{label}")
+        super(XContractEntire, self).__init__(**kwargs)
+
+
 
     def _info(self):
-        label_names = list(LABEL_MAP.values())
-        labels = ["O"]
-        for label in label_names:
-            labels.append(f"B-{label}")
-            labels.append(f"I-{label}")
+
         return datasets.DatasetInfo(
             features=datasets.Features(
                 {
@@ -52,7 +55,7 @@ class XContractEntire(datasets.GeneratorBasedBuilder):
                     "bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
                     "labels": datasets.Sequence(
                         datasets.features.ClassLabel(
-                            names=labels
+                            names=self.labels
                         )
                     ),
                     "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
@@ -60,7 +63,7 @@ class XContractEntire(datasets.GeneratorBasedBuilder):
                         {
                             "start": datasets.Value("int64"),
                             "end": datasets.Value("int64"),
-                            "label": datasets.ClassLabel(names=label_names),
+                            "label": datasets.ClassLabel(names=self.label_names),
                         }
                     ),
                 }
