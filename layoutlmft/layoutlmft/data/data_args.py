@@ -82,7 +82,10 @@ class DataTrainingArguments:
         metadata={"help": "Calculate statistics with full doc"},
     )
     data_dir: Optional[str] = field(
-        default=None, metadata={"help": "The configuration name of the dataset to use (via the datasets library)."}
+        default=None, metadata={"help": "The source dir of the dataset to use (via the datasets library)."}
+    )
+    data_cache_dir: Optional[str] = field(
+        default=None, metadata={"help": "The cache dir of the dataset to use (via the datasets library)."}
     )
     doc_type: Optional[str] = field(
         default=None, metadata={"help": "Document type, such as: receipt, contract, invoice."}

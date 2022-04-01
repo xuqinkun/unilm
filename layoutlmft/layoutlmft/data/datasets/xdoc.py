@@ -21,6 +21,7 @@ LABEL_MAP = {
     "contract": {"合同号": "CONTRACT_ID", "甲方": "FIRST_PARTY", "乙方": "SECOND_PARTY", "总金额": "AMOUNT", "日期": "DATE"},
     "receipt": {"金额": "AMOUNT", "日期": "DATE"},
     "voucher": {'编号': "ID", '科目': 'SUBJECT', '日期': "DATE", '金额': "AMOUNT", '摘要': "ABSTRACT"},
+    "other": {'编号': "ID", '日期': "DATE", '金额': "AMOUNT", },
 }
 
 if "DEBUG" in os.environ:
@@ -46,8 +47,8 @@ class XDoc(datasets.GeneratorBasedBuilder):
         for label in self.label_names:
             self.labels.append(f"B-{label}")
             self.labels.append(f"I-{label}")
-        super(XDoc, self).__init__()
-        self.BUILDER_CONFIGS = [XDocConfig(name=f"x_{kwargs['doc_type']}.{lang}", lang=lang) for lang in _LANG]
+        super(XDoc, self).__init__(cache_dir=kwargs['cache_dir'], name=f"{kwargs['name']}")
+        self.BUILDER_CONFIGS = [XDocConfig(name=f"x{kwargs['doc_type']}.{lang}", lang=lang) for lang in _LANG]
 
     def _info(self):
         return datasets.DatasetInfo(

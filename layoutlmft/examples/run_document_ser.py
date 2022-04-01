@@ -79,12 +79,13 @@ def main():
     # Set seed before initializing model.
     set_seed(training_args.seed)
     datasets = load_dataset(
-        os.path.abspath(layoutlmft.data.datasets.xdoc.__file__),
-        f"xother.{data_args.lang}",
+        path=os.path.abspath(layoutlmft.data.datasets.xdoc.__file__),
+        name=f"x{data_args.doc_type}.{data_args.lang}",
         additional_langs=data_args.additional_langs,
         keep_in_memory=True,
         data_dir=data_args.data_dir,
         doc_type=data_args.doc_type,
+        cache_dir=data_args.data_cache_dir,
     )
     if training_args.do_train:
         column_names = datasets["train"].column_names

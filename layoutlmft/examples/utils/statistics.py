@@ -15,6 +15,7 @@ pattern_map = {
     'SIGN_DATE': "\d{2}/\d{2}/\d{2,4}|\d{2,4}-\d{2}-\d{2}|\d{2,4}年\d{2}月\d{2}日|\d{2,4}/\d*",
 }
 
+
 def load_model(checkpoint, model):
     state_dict = torch.load(os.path.join(checkpoint, WEIGHTS_NAME))
     model.load_state_dict(state_dict)
