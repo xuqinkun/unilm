@@ -4,6 +4,8 @@ import re
 import pandas as pd
 import torch
 
+from layoutlmft.data.datasets.xdoc import LABEL_MAP
+
 BOE = '▁'
 COLON = ":"
 WEIGHTS_NAME = "pytorch_model.bin"
@@ -275,10 +277,10 @@ def _copy_file(src, dst):
         f.write(data)
 
 
-
-def output_pred(columns, pred_cloze_map, data_dir):
+def output_pred(doc_type, pred_cloze_map, data_dir):
     data = []
     index = []
+    columns = list(LABEL_MAP[doc_type].values())
     src_file = "eval.tar.gz"
     eval_src = os.path.join(data_dir, "eval", src_file)
     parent_dir, doc_type = data_dir.rsplit("/", 1)
@@ -297,6 +299,6 @@ def output_pred(columns, pred_cloze_map, data_dir):
                 row_data.append("")
         data.append(row_data)
     df = pd.DataFrame(data=data, index=index, columns=columns)
-    output_csv = os.path.join(pred_dir, "pred.csv")
-    df.to_csv(output_csv, encoding="utf_8_sig")
-    print(output_csv)
+    output_path = os.path.join(pred_dir, "pred.csv")
+    df.to_csv(output_path, encoding="utf_8_sig")
+    print(output_path)

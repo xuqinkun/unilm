@@ -84,6 +84,9 @@ class DataTrainingArguments:
     data_dir: Optional[str] = field(
         default=None, metadata={"help": "The configuration name of the dataset to use (via the datasets library)."}
     )
+    doc_type: Optional[str] = field(
+        default=None, metadata={"help": "Document type, such as: receipt, contract, invoice."}
+    )
 
 
 @dataclass

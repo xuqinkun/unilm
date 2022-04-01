@@ -9,44 +9,47 @@ from transformers import AutoTokenizer
 
 from .utils import get_file_index, get_doc_items, get_lines, load_json
 
-if "DEBUG" in os.environ:
-    print(__file__.rsplit("/", 1)[0])
-
 _LANG = ["zh", "de", "es", "fr", "en", "it", "ja", "pt"]
 logger = logging.getLogger(__name__)
 
-LABEL_MAP = {"合同编号": "CONTRACT_ID", "客户名称": "FIRST_PARTY", "签订主体": "SECOND_PARTY", "合同金额": "AMOUNT",
-             "签订日期": "SIGN_DATE",
-             "交货日期": "DELIVER_DATE",
-             '运输方式': "TRANSPORTATION", "产品名称": "PRODUCT_NAME", '签订地点': "SIGN_PLACE", "付款方式": "PAYMENT_METHOD"}
+LABEL_MAP = {
+    "invoice": {'编号': "ID", '日期': "DATE", '金额': "AMOUNT"},
+    "contract_entire": {"合同编号": "CONTRACT_ID", "客户名称": "FIRST_PARTY", "签订主体": "SECOND_PARTY",
+                        "合同金额": "AMOUNT", "签订日期": "SIGN_DATE", "交货日期": "DELIVER_DATE",
+                        '运输方式': "TRANSPORTATION", "产品名称": "PRODUCT_NAME", '签订地点': "SIGN_PLACE",
+                        "付款方式": "PAYMENT_METHOD"},
+    "contract": {"合同号": "CONTRACT_ID", "甲方": "FIRST_PARTY", "乙方": "SECOND_PARTY", "总金额": "AMOUNT", "日期": "DATE"},
+    "receipt": {"金额": "AMOUNT", "日期": "DATE"},
+    "voucher": {'编号': "ID", '科目': 'SUBJECT', '日期': "DATE", '金额': "AMOUNT", '摘要': "ABSTRACT"},
+}
+
+if "DEBUG" in os.environ:
+    print(__file__.rsplit("/", 1)[0])
 
 
-class XContractEntireConfig(datasets.BuilderConfig):
+class XDocConfig(datasets.BuilderConfig):
 
     def __init__(self, lang, addtional_langs=None, **kwargs):
-        super(XContractEntireConfig, self).__init__(**kwargs)
+        super(XDocConfig, self).__init__(**kwargs)
         self.lang = lang
         self.addtional_langs = addtional_langs
 
 
-class XContractEntire(datasets.GeneratorBasedBuilder):
-    BUILDER_CONFIGS = [XContractEntireConfig(name=f"xcontract_entire.{lang}", lang=lang) for lang in _LANG]
-
+class XDoc(datasets.GeneratorBasedBuilder):
     tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
 
     def __init__(self, **kwargs):
         self.data_dir = kwargs['data_dir']
-        self.label_names = list(LABEL_MAP.values())
+        self.label_map = LABEL_MAP[kwargs['doc_type']]
+        self.label_names = list(self.label_map.values())
         self.labels = ["O"]
         for label in self.label_names:
             self.labels.append(f"B-{label}")
             self.labels.append(f"I-{label}")
-        super(XContractEntire, self).__init__(**kwargs)
-
-
+        super(XDoc, self).__init__()
+        self.BUILDER_CONFIGS = [XDocConfig(name=f"x_{kwargs['doc_type']}.{lang}", lang=lang) for lang in _LANG]
 
     def _info(self):
-
         return datasets.DatasetInfo(
             features=datasets.Features(
                 {
@@ -75,7 +78,6 @@ class XContractEntire(datasets.GeneratorBasedBuilder):
         """Returns SplitGenerators."""
         train_file = osp.join(self.data_dir, "train", "train.tar.gz")
         eval_file = osp.join(self.data_dir, "eval", "eval.tar.gz")
-        print(train_file, eval_file)
         data_dir = dl_manager.download_and_extract({
             "train": train_file, "eval": eval_file}
         )
@@ -92,6 +94,12 @@ class XContractEntire(datasets.GeneratorBasedBuilder):
                     "filepath": data_dir["eval"],
                     "split": "eval"}
             ),
+            # datasets.SplitGenerator(
+            #     name=datasets.Split.TEST,
+            #     gen_kwargs={
+            #         "filepath": data_dir["test"],
+            #         "split": "test"}
+            # ),
         ]
 
     def _generate_examples(self, filepath, split):
@@ -107,10 +115,11 @@ class XContractEntire(datasets.GeneratorBasedBuilder):
         file_dict = get_file_index(filepath)
 
         for key, file_group in file_dict.items():
-            if 'ocr' not in file_group.keys():
-                exit(1)
+            if 'ocr' not in file_group or 'img' not in file_group:
+                print(key, file_group)
+                continue
             ocr_data = load_json(os.path.join(filepath, file_group['ocr']))
-            image, image_size = load_image(os.path.join(filepath, file_group['img']))
+            image, image_shape = load_image(os.path.join(filepath, file_group['img']))
 
             if 'tag' in file_group.keys():
                 label_data = load_json(os.path.join(filepath, file_group['tag']))
@@ -119,7 +128,7 @@ class XContractEntire(datasets.GeneratorBasedBuilder):
                 labels = None
             lines = get_lines(ocr_data)
 
-            tokenized_doc, entities = get_doc_items(self.tokenizer, lines, labels, LABEL_MAP, image_size)
+            tokenized_doc, entities = get_doc_items(self.tokenizer, lines, labels, self.label_map, image_shape)
 
             chunk_size = 512
             for chunk_id, index in enumerate(range(0, len(tokenized_doc["input_ids"]), chunk_size)):
