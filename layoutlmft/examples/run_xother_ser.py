@@ -4,11 +4,12 @@
 import logging
 import os
 import sys
-import examples.utils.seqeval
+
 import layoutlmft.data.datasets.xother
 import numpy as np
 import transformers
-from datasets import ClassLabel, load_dataset, load_metric
+from datasets import ClassLabel, load_dataset
+from examples.utils.statistics import do_predict, error_analysis, output_pred, load_model
 from layoutlmft.data import DataCollatorForKeyValueExtraction
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
 from layoutlmft.data.datasets.xother import LABEL_MAP as label_map
@@ -25,8 +26,6 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version
-
-from examples.utils.statistics import do_predict, error_analysis, output_pred, load_model
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.5.0")
@@ -187,44 +186,6 @@ def main():
         max_length=512,
     )
 
-    # Metrics
-    from datasets.utils.file_utils import DownloadConfig
-    download_config = DownloadConfig(local_files_only=True)
-    metric = load_metric(os.path.abspath(examples.utils.seqeval.__file__), download_config=download_config)
-
-    def compute_metrics(p):
-        predictions, labels = p
-        predictions = np.argmax(predictions, axis=2)
-
-        # Remove ignored index (special tokens)
-        true_predictions = [
-            [label_list[p] for (p, l) in zip(prediction, label) if l != -100]
-            for prediction, label in zip(predictions, labels)
-        ]
-        true_labels = [
-            [label_list[l] for (p, l) in zip(prediction, label) if l != -100]
-            for prediction, label in zip(predictions, labels)
-        ]
-
-        results = metric.compute(predictions=true_predictions, references=true_labels)
-        if data_args.return_entity_level_metrics:
-            # Unpack nested dictionaries
-            final_results = {}
-            for key, value in results.items():
-                if isinstance(value, dict):
-                    for n, v in value.items():
-                        final_results[f"{key}_{n}"] = v
-                else:
-                    final_results[key] = value
-            return final_results
-        else:
-            return {
-                "precision": results["overall_precision"],
-                "recall": results["overall_recall"],
-                "f1": results["overall_f1"],
-                "accuracy": results["overall_accuracy"],
-            }
-
     # Initialize our Trainer
     trainer = XfunSerTrainer(
         model=model,
@@ -233,23 +194,17 @@ def main():
         eval_dataset=eval_dataset if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=data_collator,
-        compute_metrics=compute_metrics,
     )
 
     # Training
     if training_args.do_train:
         checkpoint = last_checkpoint if last_checkpoint else None
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
-        metrics = train_result.metrics
         trainer.save_model()  # Saves the tokenizer too for easy upload
 
         max_train_samples = (
             data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
         )
-        metrics["train_samples"] = min(max_train_samples, len(train_dataset))
-
-        trainer.log_metrics("train", metrics)
-        trainer.save_metrics("train", metrics)
         trainer.save_state()
 
     # Evaluation
@@ -261,14 +216,13 @@ def main():
         max_val_samples = data_args.max_val_samples if data_args.max_val_samples is not None else len(eval_dataset)
         metrics["eval_samples"] = min(max_val_samples, len(eval_dataset))
 
-        trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
     # Predict
     if training_args.do_predict:
         logger.info("*** Predict ***")
-
-        load_model(last_checkpoint, trainer.model)
+        if not training_args.do_train:
+            load_model(last_checkpoint, trainer.model)
 
         predictions, pred_entity_labels, metrics = trainer.predict(test_dataset)
         predictions = np.argmax(predictions, axis=2)
@@ -285,7 +239,8 @@ def main():
                                     true_predictions=true_predictions)
         error_analysis(label_list, test_dataset, id_to_word, true_predictions)
 
-        output_pred(list(label_map.values()), pred_cloze_map, data_args.data_dir)
+        if data_args.output_pred:
+            output_pred(list(label_map.values()), pred_cloze_map, data_args.data_dir)
 
 
 
