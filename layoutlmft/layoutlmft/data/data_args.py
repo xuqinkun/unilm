@@ -73,6 +73,14 @@ class DataTrainingArguments:
         default=False,
         metadata={"help": "Whether to return all the entity levels during evaluation or just the overall ones."},
     )
+    output_pred: bool = field(
+        default=False,
+        metadata={"help": "Output pred results to csv"},
+    )
+    full_doc: bool = field(
+        default=False,
+        metadata={"help": "Calculate statistics with full doc"},
+    )
     data_dir: Optional[str] = field(
         default=None, metadata={"help": "The configuration name of the dataset to use (via the datasets library)."}
     )
