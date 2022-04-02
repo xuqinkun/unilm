@@ -9,6 +9,7 @@ import layoutlmft.data.datasets.xdoc
 import numpy as np
 import transformers
 from datasets import ClassLabel, load_dataset
+from datasets.utils import GenerateMode
 from examples.utils.statistics import do_predict, error_analysis, output_pred, load_model
 from layoutlmft.data import DataCollatorForKeyValueExtraction
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
@@ -40,7 +41,7 @@ def main():
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-    print(f"=====DOC_TYPE: {data_args.doc_type} ==========")
+    print(f"******* DOC_TYPE: {data_args.doc_type} *******")
     # Detecting last checkpoint.
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir) and not training_args.overwrite_output_dir:
@@ -78,6 +79,10 @@ def main():
 
     # Set seed before initializing model.
     set_seed(training_args.seed)
+    if data_args.force_download:
+        download_mode = GenerateMode.FORCE_REDOWNLOAD
+    else:
+        download_mode = GenerateMode.REUSE_DATASET_IF_EXISTS
     datasets = load_dataset(
         path=os.path.abspath(layoutlmft.data.datasets.xdoc.__file__),
         name=f"x{data_args.doc_type}.{data_args.lang}",
@@ -86,6 +91,11 @@ def main():
         data_dir=data_args.data_dir,
         doc_type=data_args.doc_type,
         cache_dir=data_args.data_cache_dir,
+        pred_only=data_args.pred_only,
+        is_tar_file=data_args.is_tar_file,
+        ocr_path=data_args.ocr_path,
+        download_mode=download_mode,
+        version=data_args.version,
     )
     if training_args.do_train:
         column_names = datasets["train"].column_names

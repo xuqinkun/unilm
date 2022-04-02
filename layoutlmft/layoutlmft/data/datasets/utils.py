@@ -1,31 +1,61 @@
 # -*- coding: utf-8 -*-
 import os
+import os.path as osp
 import json
+import re
 from layoutlmft.data.utils import normalize_bbox, merge_bbox, simplify_bbox
 
+pattern_rar = "^(\s|\S)*\.((rar|zip|gz)(\.lock)?)$"
+pattern_img = "^((\s|\S)*\.)?(png|jpg|jpeg)$"
 
-def get_file_index(filepath):
+
+def get_file_index(path_or_paths):
     file_dict = {}
-    for file in os.listdir(filepath):
-        if file.startswith(".") or "." not in file:
-            continue
-        name, suffix = file.rsplit(".", 1)
-        key = name
-        if suffix == "json":
-            if "ocr" in name:
-                key = name.rsplit("-", 1)[0]
-                file_type = "ocr"
-            else:
-                file_type = "tag"
-        elif suffix == 'csv':
-            key = name.rsplit("-", 1)[0]
-            file_type = 'template'
+    if isinstance(path_or_paths, str):
+        path_or_paths = [path_or_paths]
+    for path in path_or_paths:
+        if osp.isfile(path):
+            # 文件直接解析
+            file_type, key = _parse_file(path)
+            if key not in file_dict.keys():
+                file_dict[key] = {}
+            file_dict[key][file_type] = path
         else:
-            file_type = "img"
-        if key not in file_dict.keys():
-            file_dict[key] = {}
-        file_dict[key][file_type] = file
+            # 遍历目录
+            for file in os.listdir(path):
+                if file.startswith(".") or "." not in file:
+                    continue
+                file_type, key = _parse_file(file)
+                if key not in file_dict.keys():
+                    file_dict[key] = {}
+                file_dict[key][file_type] = file
     return file_dict
+
+
+def _parse_file(filename):
+    # 过滤掉压缩文件
+    if re.compile(pattern_rar).match(filename.lower()):
+        return "rar", None
+    if os.sep in filename:
+        filename = filename.rsplit(os.sep, 1)[-1]
+    name, suffix = filename.rsplit(".", 1)
+    if suffix == "json":
+        if "ocr" in name:
+            key = name.rsplit("-", 1)[0]
+            file_type = "ocr"
+        else:
+            file_type = "tag"
+            key = name
+    elif suffix == 'csv':
+        file_type = 'template'
+        key = name.rsplit("-", 1)[0]
+    elif re.compile(pattern_img).match(filename.lower()):
+        file_type = "img"
+        key = name
+    else:
+        file_type = "other"
+        key = name
+    return file_type, key
 
 
 def get_lines(ocr_data):
@@ -182,3 +212,22 @@ def parse_text(tokenizer, line, image_size, line_id, tag_line_ids, id2label, lab
     tokenized_inputs.update({"bbox": bbox, "labels": tags})
 
     return tokenized_inputs, tags, label_name, entity_span
+
+
+def walk_dir(root_dir):
+    file_list = []
+    for root, dirs, files in os.walk(root_dir):
+        for file in files:
+            file_type, _ = _parse_file(file)
+            if file_type != "rar":
+                file_list.append(osp.join(root, file))
+            else:
+                print("Skip ", file)
+    return file_list
+
+
+def update_ocr_index(file_dict, ocr_path):
+    for key in file_dict:
+        ocr_file = osp.join(ocr_path, key + ".json")
+        if osp.exists(ocr_file) and osp.isfile(ocr_file):
+            file_dict[key]["ocr"] = ocr_file

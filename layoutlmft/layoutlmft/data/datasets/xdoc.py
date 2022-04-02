@@ -7,13 +7,14 @@ import datasets
 from layoutlmft.data.utils import load_image, read_ner_label
 from transformers import AutoTokenizer
 
-from .utils import get_file_index, get_doc_items, get_lines, load_json
+from .utils import get_file_index, get_doc_items, get_lines, load_json, walk_dir, update_ocr_index
 
 _LANG = ["zh", "de", "es", "fr", "en", "it", "ja", "pt"]
 logger = logging.getLogger(__name__)
 
 LABEL_MAP = {
-    "invoice": {'编号': "ID", '日期': "DATE", '金额': "AMOUNT"},
+    "invoice": {"凭证号": "ID", "发票类型": "TAX_TYPE", "日期": "DATE", "客户名称": "CUSTOMER", "供用商名称": "SUPPLIER",
+                "数量": "NUM", "税率": "TAX_RATE", "金额": "AMOUNT", "备注": "REMARK", "总金额": "TOTAL_AMOUNT", },
     "contract_entire": {"合同编号": "CONTRACT_ID", "客户名称": "FIRST_PARTY", "签订主体": "SECOND_PARTY",
                         "合同金额": "AMOUNT", "签订日期": "SIGN_DATE", "交货日期": "DELIVER_DATE",
                         '运输方式': "TRANSPORTATION", "产品名称": "PRODUCT_NAME", '签订地点': "SIGN_PLACE",
@@ -41,13 +42,22 @@ class XDoc(datasets.GeneratorBasedBuilder):
 
     def __init__(self, **kwargs):
         self.data_dir = kwargs['data_dir']
+        self.pred_only = kwargs['pred_only']
+        self.is_tar_file = kwargs['is_tar_file']
         self.label_map = LABEL_MAP[kwargs['doc_type']]
         self.label_names = list(self.label_map.values())
+        self.ocr_path = None
+        if "ocr_path" in kwargs:
+            self.ocr_path = kwargs['ocr_path']
         self.labels = ["O"]
         for label in self.label_names:
             self.labels.append(f"B-{label}")
             self.labels.append(f"I-{label}")
-        super(XDoc, self).__init__(cache_dir=kwargs['cache_dir'], name=f"{kwargs['name']}")
+        version = kwargs['version']
+        if version:
+            super(XDoc, self).__init__(cache_dir=kwargs['cache_dir'], name=kwargs['name'], version=version)
+        else:
+            super(XDoc, self).__init__(cache_dir=kwargs['cache_dir'], name=kwargs['name'])
         self.BUILDER_CONFIGS = [XDocConfig(name=f"x{kwargs['doc_type']}.{lang}", lang=lang) for lang in _LANG]
 
     def _info(self):
@@ -77,8 +87,22 @@ class XDoc(datasets.GeneratorBasedBuilder):
 
     def _split_generators(self, dl_manager):
         """Returns SplitGenerators."""
-        train_file = osp.join(self.data_dir, "train", "train.tar.gz")
-        eval_file = osp.join(self.data_dir, "eval", "eval.tar.gz")
+        if self.pred_only:
+            if self.is_tar_file:
+                eval_file = osp.join(self.data_dir, "eval", "eval.tar.gz")
+                train_file = osp.join(self.data_dir, "train", "train.tar.gz")
+            else:
+                eval_file = walk_dir(self.data_dir)
+                train_file = []
+        else:
+
+            if self.is_tar_file:
+                eval_file = osp.join(self.data_dir, "eval", "eval.tar.gz")
+                train_file = osp.join(self.data_dir, "train", "train.tar.gz")
+            else:
+                train_file = walk_dir(osp.join(self.data_dir, "train"))
+                eval_file = walk_dir(osp.join(self.data_dir, "train"))
+
         data_dir = dl_manager.download_and_extract({
             "train": train_file, "eval": eval_file}
         )
@@ -86,13 +110,13 @@ class XDoc(datasets.GeneratorBasedBuilder):
             datasets.SplitGenerator(
                 name=datasets.Split.TRAIN,
                 gen_kwargs={
-                    "filepath": data_dir["train"],
+                    "path_or_paths": data_dir["train"],
                     "split": "train"}
             ),
             datasets.SplitGenerator(
                 name=datasets.Split.VALIDATION,
                 gen_kwargs={
-                    "filepath": data_dir["eval"],
+                    "path_or_paths": data_dir["eval"],
                     "split": "eval"}
             ),
             # datasets.SplitGenerator(
@@ -103,7 +127,7 @@ class XDoc(datasets.GeneratorBasedBuilder):
             # ),
         ]
 
-    def _generate_examples(self, filepath, split):
+    def _generate_examples(self, path_or_paths, split):
         """ Yields examples.
         这个方法将接收在前面的' _split_generators '方法中定义的' gen_kwargs '作为参数。
         It is in charge of opening the given file and yielding (key, example) tuples from the dataset
@@ -113,17 +137,18 @@ class XDoc(datasets.GeneratorBasedBuilder):
 
         这里就是根据自己的数据集来整理
         """
-        file_dict = get_file_index(filepath)
-
+        file_dict = get_file_index(path_or_paths)
+        if self.ocr_path:
+            update_ocr_index(file_dict, self.ocr_path)
         for key, file_group in file_dict.items():
             if 'ocr' not in file_group or 'img' not in file_group:
-                print(key, file_group)
+                print("Skip ", key, ",", file_group)
                 continue
-            ocr_data = load_json(os.path.join(filepath, file_group['ocr']))
-            image, image_shape = load_image(os.path.join(filepath, file_group['img']))
+            ocr_data = load_json(file_group['ocr'])
+            image, image_shape = load_image(file_group['img'])
 
             if 'tag' in file_group.keys():
-                label_data = load_json(os.path.join(filepath, file_group['tag']))
+                label_data = load_json(file_group['tag'])
                 labels = read_ner_label(ocr_data, label_data)
             else:
                 labels = None
@@ -147,12 +172,12 @@ class XDoc(datasets.GeneratorBasedBuilder):
                         entity["end"] = entity["end"] - index
                         global_to_local_map[entity_id] = len(entities_in_this_span)
                         entities_in_this_span.append(entity)
-
+                guid = file_group['ocr']
                 item.update(
                     {
-                        "id": f"{key}_{chunk_id}",
+                        "id": f"{guid}_{chunk_id}",
                         "image": image,
                         "entities": entities_in_this_span,
                     }
                 )
-                yield f"{key}_{chunk_id}", item
+                yield f"{guid}_{chunk_id}", item

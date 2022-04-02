@@ -81,14 +81,32 @@ class DataTrainingArguments:
         default=False,
         metadata={"help": "Calculate statistics with full doc"},
     )
+    pred_only: bool = field(
+        default=False,
+        metadata={"help": "Only load dataset for prediction"},
+    )
+    is_tar_file: bool = field(
+        default=False,
+        metadata={"help": "Whether the dataset is tar file"},
+    )
+    force_download: bool = field(
+        default=False,
+        metadata={"help": "Force download dataset"},
+    )
     data_dir: Optional[str] = field(
         default=None, metadata={"help": "The source dir of the dataset to use (via the datasets library)."}
+    )
+    ocr_path: Optional[str] = field(
+        default=None, metadata={"help": "The path of ocr text."}
     )
     data_cache_dir: Optional[str] = field(
         default=None, metadata={"help": "The cache dir of the dataset to use (via the datasets library)."}
     )
     doc_type: Optional[str] = field(
         default=None, metadata={"help": "Document type, such as: receipt, contract, invoice."}
+    )
+    version: Optional[str] = field(
+        default=None, metadata={"help": "The version of dataset."}
     )
 
 

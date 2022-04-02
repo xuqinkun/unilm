@@ -49,9 +49,14 @@ def do_predict(label_list, datasets, id_to_word, true_predictions, full_doc=Fals
     total_doc_num = len(pred_cloze_map)
 
     # 计算recall，precision，f1
-    recall = correct_label_num * 100 / total_label_num
-    precision = correct_label_num * 100 / pred_label_num
-    f1 = 2 * precision * recall / (precision + recall)
+    if total_label_num != 0:
+        recall = correct_label_num * 100 / total_label_num
+        precision = correct_label_num * 100 / pred_label_num
+        f1 = 2 * precision * recall / (precision + recall)
+    else:
+        precision = 0
+        recall = 0
+        f1 = 0
 
     train_pages = count_data_size(train_dataset)
     test_pages = count_data_size(test_dataset)
@@ -268,7 +273,7 @@ def parse_entity_span(tokens, id_to_word, labels):
 
 def _make_dir_if_not_exists(path):
     if not os.path.exists(path):
-        os.mkdir(path)
+        os.makedirs(path, exist_ok=True)
 
 
 def _copy_file(src, dst):
@@ -278,16 +283,19 @@ def _copy_file(src, dst):
         f.write(data)
 
 
-def output_pred(doc_type, pred_cloze_map, data_dir):
+def output_pred(doc_type, pred_cloze_map, data_dir, copy_src=False):
     data = []
     index = []
     columns = list(LABEL_MAP[doc_type].values())
-    src_file = "eval.tar.gz"
-    eval_src = os.path.join(data_dir, "eval", src_file)
+
     parent_dir, doc_type = data_dir.rsplit("/", 1)
     pred_dir = os.path.join(parent_dir, "pred", doc_type)
     _make_dir_if_not_exists(pred_dir)
-    _copy_file(eval_src, os.path.join(pred_dir, src_file))
+
+    if copy_src:
+        src_file = "eval.tar.gz"
+        eval_src = os.path.join(data_dir, "eval", src_file)
+        _copy_file(eval_src, os.path.join(pred_dir, src_file))
     for key in pred_cloze_map:
         index.append(key)
         field_map = pred_cloze_map[key]
