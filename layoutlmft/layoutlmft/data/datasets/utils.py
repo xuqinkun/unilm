@@ -17,6 +17,9 @@ def get_file_index(path_or_paths):
         if osp.isfile(path):
             # 文件直接解析
             file_type, key = _parse_file(path)
+            if key is None:
+                print("Skip ", path)
+                continue
             if key not in file_dict.keys():
                 file_dict[key] = {}
             file_dict[key][file_type] = path
@@ -26,6 +29,9 @@ def get_file_index(path_or_paths):
                 if file.startswith(".") or "." not in file:
                     continue
                 file_type, key = _parse_file(file)
+                if key is None:
+                    print("Skip ", path)
+                    continue
                 if key not in file_dict.keys():
                     file_dict[key] = {}
                 file_dict[key][file_type] = file
@@ -38,7 +44,13 @@ def _parse_file(filename):
         return "rar", None
     if os.sep in filename:
         filename = filename.rsplit(os.sep, 1)[-1]
-    name, suffix = filename.rsplit(".", 1)
+    if "." not in filename:
+        return "other", None
+    try:
+        name, suffix = filename.rsplit(".", 1)
+    except ValueError as e:
+        print(filename)
+        raise e
     if suffix == "json":
         if "ocr" in name:
             key = name.rsplit("-", 1)[0]
@@ -218,8 +230,8 @@ def walk_dir(root_dir):
     file_list = []
     for root, dirs, files in os.walk(root_dir):
         for file in files:
-            file_type, _ = _parse_file(file)
-            if file_type != "rar":
+            _, key = _parse_file(file)
+            if key is not None:
                 file_list.append(osp.join(root, file))
             else:
                 print("Skip ", file)

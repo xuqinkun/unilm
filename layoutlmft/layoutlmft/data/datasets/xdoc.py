@@ -172,7 +172,7 @@ class XDoc(datasets.GeneratorBasedBuilder):
                         entity["end"] = entity["end"] - index
                         global_to_local_map[entity_id] = len(entities_in_this_span)
                         entities_in_this_span.append(entity)
-                guid = file_group['ocr']
+                guid = file_group['img']
                 item.update(
                     {
                         "id": f"{guid}_{chunk_id}",
