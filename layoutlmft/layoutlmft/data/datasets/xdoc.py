@@ -145,6 +145,9 @@ class XDoc(datasets.GeneratorBasedBuilder):
                 print("Skip ", key, ",", file_group)
                 continue
             ocr_data = load_json(file_group['ocr'])
+            if ocr_data is None:
+                print("Skip ", key, ",", file_group)
+                continue
             image, image_shape = load_image(file_group['img'])
 
             if 'tag' in file_group.keys():
