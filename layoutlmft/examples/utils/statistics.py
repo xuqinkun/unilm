@@ -287,6 +287,7 @@ def output_pred(doc_type, pred_cloze_map, data_dir, copy_src=False):
     data = []
     index = []
     columns = list(LABEL_MAP[doc_type].values())
+    add_columns = ["LAST_DIR"]
 
     parent_dir, doc_type = data_dir.rsplit("/", 1)
     pred_dir = os.path.join(parent_dir, "pred", doc_type)
@@ -297,9 +298,14 @@ def output_pred(doc_type, pred_cloze_map, data_dir, copy_src=False):
         eval_src = os.path.join(data_dir, "eval", src_file)
         _copy_file(eval_src, os.path.join(pred_dir, src_file))
     for key in pred_cloze_map:
-        index.append(key)
+        if os.sep in key:
+            last_dir, filename = key.rsplit(os.sep, 1)
+            last_dir = last_dir.rsplit(os.sep, 1)[-1]
+            index.append(filename)
+        else:
+            last_dir = ""
         field_map = pred_cloze_map[key]
-        row_data = []
+        row_data = [last_dir]
         # 读取一行
         for column_name in columns:
             if column_name in field_map:
@@ -307,7 +313,7 @@ def output_pred(doc_type, pred_cloze_map, data_dir, copy_src=False):
             else:
                 row_data.append("")
         data.append(row_data)
-    df = pd.DataFrame(data=data, index=index, columns=columns)
+    df = pd.DataFrame(data=data, index=index, columns=add_columns+columns)
     output_path = os.path.join(pred_dir, "pred.csv")
     df.to_csv(output_path, encoding="utf_8_sig")
     print(output_path)

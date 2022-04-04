@@ -3,6 +3,7 @@ import os
 import os.path as osp
 import json
 import re
+from json.decoder import JSONDecodeError
 from layoutlmft.data.utils import normalize_bbox, merge_bbox, simplify_bbox
 
 pattern_rar = "^(\s|\S)*\.((rar|zip|gz)(\.lock)?)$"
@@ -83,10 +84,15 @@ def get_lines(ocr_data):
 
 
 def load_json(filepath):
-    with open(filepath, 'r', encoding="utf-8") as f:
-        ocr_data = json.load(f)
-    if type(ocr_data) == str:
-        ocr_data = json.loads(ocr_data)
+    try:
+        with open(filepath, 'r', encoding="utf-8") as f:
+            ocr_data = json.load(f)
+        if type(ocr_data) == str:
+            ocr_data = json.loads(ocr_data)
+    except JSONDecodeError as e:
+        print(filepath)
+        print(e)
+        return None
     return ocr_data
 
 
