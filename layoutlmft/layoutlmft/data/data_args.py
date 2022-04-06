@@ -48,6 +48,13 @@ class DataTrainingArguments:
             "value if set."
         },
     )
+    max_seq_length: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "For debugging purposes or quicker training, truncate the number of training examples to this "
+            "value if set."
+        },
+    )
     max_val_samples: Optional[int] = field(
         default=None,
         metadata={
@@ -106,6 +113,15 @@ class DataTrainingArguments:
         default=None, metadata={"help": "Document type, such as: receipt, contract, invoice."}
     )
     version: Optional[str] = field(
+        default=None, metadata={"help": "The version of dataset."}
+    )
+    bart_model: Optional[str] = field(
+        default=None, metadata={"help": "The version of dataset."}
+    )
+    xlm_model: Optional[str] = field(
+        default=None, metadata={"help": "The version of dataset."}
+    )
+    xlm_tokenizer: Optional[str] = field(
         default=None, metadata={"help": "The version of dataset."}
     )
 

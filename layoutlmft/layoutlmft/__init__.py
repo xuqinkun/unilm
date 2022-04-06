@@ -1,8 +1,12 @@
+import types
 from collections import OrderedDict
 
 from transformers import CONFIG_MAPPING, MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING, MODEL_NAMES_MAPPING, TOKENIZER_MAPPING
 from transformers.convert_slow_tokenizer import SLOW_TO_FAST_CONVERTERS, BertConverter, XLMRobertaConverter
-from transformers.models.auto.modeling_auto import auto_class_factory
+try:
+    from transformers.models.auto.modeling_auto import auto_class_factory
+except:
+    from transformers.models.auto.modeling_auto import _BaseAutoModelClass, auto_class_update
 
 from .models.layoutlmv2 import (
     LayoutLMv2Config,
@@ -37,10 +41,30 @@ MODEL_FOR_RELATION_EXTRACTION_MAPPING = OrderedDict(
     [(LayoutLMv2Config, LayoutLMv2ForRelationExtraction), (LayoutXLMConfig, LayoutXLMForRelationExtraction)]
 )
 
-AutoModelForTokenClassification = auto_class_factory(
-    "AutoModelForTokenClassification", MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING, head_doc="token classification"
-)
+# AutoModelForTokenClassification = auto_class_factory(
+#     "AutoModelForTokenClassification", MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING, head_doc="token classification"
+# )
+#
+# AutoModelForRelationExtraction = auto_class_factory(
+#     "AutoModelForRelationExtraction", MODEL_FOR_RELATION_EXTRACTION_MAPPING, head_doc="relation extraction"
+# )
 
-AutoModelForRelationExtraction = auto_class_factory(
-    "AutoModelForRelationExtraction", MODEL_FOR_RELATION_EXTRACTION_MAPPING, head_doc="relation extraction"
-)
+try:
+    AutoModelForTokenClassification = auto_class_factory(
+        "AutoModelForTokenClassification", MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING, head_doc="token classification")
+except:
+    cls = types.new_class("AutoModelForTokenClassification", (_BaseAutoModelClass,))
+    cls._model_mapping = MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING
+    cls.__name__ = "AutoModelForTokenClassification"
+
+    AutoModelForTokenClassification = auto_class_update(cls, head_doc="token classification")
+
+try:
+    AutoModelForRelationExtraction = auto_class_factory(
+        "AutoModelForRelationExtraction", MODEL_FOR_RELATION_EXTRACTION_MAPPING, head_doc="relation extraction")
+except:
+    cls = types.new_class("AutoModelForRelationExtraction", (_BaseAutoModelClass,))
+    cls._model_mapping = MODEL_FOR_RELATION_EXTRACTION_MAPPING
+    cls.__name__ = "AutoModelForRelationExtraction"
+
+    AutoModelForRelationExtraction = auto_class_update(cls, head_doc="token classification")
