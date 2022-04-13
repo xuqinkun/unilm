@@ -96,6 +96,7 @@ def main():
         ocr_path=data_args.ocr_path,
         download_mode=download_mode,
         version=data_args.version,
+        output_dir=training_args.output_dir,
     )
     if training_args.do_train:
         column_names = datasets["train"].column_names

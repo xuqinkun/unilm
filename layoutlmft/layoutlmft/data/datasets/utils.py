@@ -35,7 +35,7 @@ def get_file_index(path_or_paths):
                     continue
                 if key not in file_dict.keys():
                     file_dict[key] = {}
-                file_dict[key][file_type] = file
+                file_dict[key][file_type] = osp.join(path, file)
     return file_dict
 
 
@@ -109,7 +109,7 @@ def parse_labels(labels):
     return tag_line_ids, id2label
 
 
-def get_doc_items(tokenizer, lines, labels, label_map, image_size):
+def get_doc_items(tokenizer, lines, labels, label_map, image_shape, output_dir, split):
     entities = []
     entity_id_to_index_map = {}
     tokenized_doc = {"input_ids": [], "bbox": [], "labels": []}
@@ -119,8 +119,9 @@ def get_doc_items(tokenizer, lines, labels, label_map, image_size):
         if len(line["text"].strip()) == 0:
             continue
 
-        tokenized_inputs, tags, label_name, entity_span = parse_text(tokenizer, line.copy(), image_size, line_id,
-                                                                     tag_line_ids, id2label, label_map)
+        tokenized_inputs, tags, label_name, entity_span = parse_text(tokenizer, line.copy(), image_shape, line_id,
+                                                                     tag_line_ids, id2label, label_map, output_dir,
+                                                                     split)
 
         if tags[0] != "O":
             entity_id_to_index_map[line_id] = len(entities)
@@ -136,7 +137,7 @@ def get_doc_items(tokenizer, lines, labels, label_map, image_size):
     return tokenized_doc, entities
 
 
-def parse_text(tokenizer, line, image_size, line_id, tag_line_ids, id2label, label_map):
+def parse_text(tokenizer, line, image_size, line_id, tag_line_ids, id2label, label_map, output_dir, split):
     text_length = 0
     ocr_length = 0
     bbox = []
@@ -223,7 +224,7 @@ def parse_text(tokenizer, line, image_size, line_id, tag_line_ids, id2label, lab
             entity_span = (0, len(text))
     assert len(tags) == len(tokenized_inputs["input_ids"]), "Not equal"
 
-    with open("/tmp/data.txt", "a") as f:
+    with open(osp.join(output_dir, split + ".csv"), "a+") as f:
         for token, label in zip(sentence_tokens, tags):
             f.write("%s\t%s\n" % (token, label))
         f.write("\n")

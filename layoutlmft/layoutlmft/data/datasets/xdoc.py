@@ -44,6 +44,7 @@ class XDoc(datasets.GeneratorBasedBuilder):
         self.data_dir = kwargs['data_dir']
         self.pred_only = kwargs['pred_only']
         self.is_tar_file = kwargs['is_tar_file']
+        self.output_dir = kwargs['output_dir']
         self.label_map = LABEL_MAP[kwargs['doc_type']]
         self.label_names = list(self.label_map.values())
         self.ocr_path = None
@@ -106,6 +107,13 @@ class XDoc(datasets.GeneratorBasedBuilder):
         data_dir = dl_manager.download_and_extract({
             "train": train_file, "eval": eval_file}
         )
+        if self.output_dir:
+            train_sample = osp.join(self.output_dir, "train.csv")
+            eval_sample = osp.join(self.output_dir, "eval.csv")
+            if osp.exists(train_sample):
+                os.remove(train_sample)
+            if osp.exists(eval_sample):
+                os.remove(eval_sample)
         return [
             datasets.SplitGenerator(
                 name=datasets.Split.TRAIN,
@@ -119,12 +127,6 @@ class XDoc(datasets.GeneratorBasedBuilder):
                     "path_or_paths": data_dir["eval"],
                     "split": "eval"}
             ),
-            # datasets.SplitGenerator(
-            #     name=datasets.Split.TEST,
-            #     gen_kwargs={
-            #         "filepath": data_dir["test"],
-            #         "split": "test"}
-            # ),
         ]
 
     def _generate_examples(self, path_or_paths, split):
@@ -138,7 +140,7 @@ class XDoc(datasets.GeneratorBasedBuilder):
         这里就是根据自己的数据集来整理
         """
         file_dict = get_file_index(path_or_paths)
-        if self.ocr_path:
+        if self.ocr_path and not self.is_tar_file:
             update_ocr_index(file_dict, self.ocr_path)
         for key, file_group in file_dict.items():
             if 'ocr' not in file_group or 'img' not in file_group:
@@ -157,8 +159,9 @@ class XDoc(datasets.GeneratorBasedBuilder):
                 labels = None
             lines = get_lines(ocr_data)
 
-            tokenized_doc, entities = get_doc_items(self.tokenizer, lines, labels, self.label_map, image_shape)
-
+            tokenized_doc, entities = get_doc_items(tokenizer=self.tokenizer, lines=lines, labels=labels,
+                                                    label_map=self.label_map,
+                                                    image_shape=image_shape, output_dir=self.output_dir, split=split)
             chunk_size = 512
             for chunk_id, index in enumerate(range(0, len(tokenized_doc["input_ids"]), chunk_size)):
                 item = {}
