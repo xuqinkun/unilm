@@ -115,14 +115,20 @@ class DataTrainingArguments:
     version: Optional[str] = field(
         default=None, metadata={"help": "The version of dataset."}
     )
-    bart_model: Optional[str] = field(
-        default=None, metadata={"help": "The version of dataset."}
+    decoder_name: Optional[str] = field(
+        default=None, metadata={"help": "The decoder name."}
     )
-    xlm_model: Optional[str] = field(
-        default=None, metadata={"help": "The version of dataset."}
+    encoder_name: Optional[str] = field(
+        default=None, metadata={"help": "The encoder name."}
     )
-    xlm_tokenizer: Optional[str] = field(
-        default=None, metadata={"help": "The version of dataset."}
+    encoder_tokenizer: Optional[str] = field(
+        default=None, metadata={"help": "The encoder tokenizer."}
+    )
+    decoder_tokenizer: Optional[str] = field(
+        default=None, metadata={"help": "The decoder tokenizer."}
+    )
+    template_lang: Optional[str] = field(
+        default='en', metadata={"help": "The template language."}
     )
 
 
