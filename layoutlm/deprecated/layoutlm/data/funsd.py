@@ -24,6 +24,7 @@ class FunsdDataset(Dataset):
         if os.path.exists(cached_features_file) and not args.overwrite_cache:
             logger.info("Loading features from cached file %s", cached_features_file)
             features = torch.load(cached_features_file)
+            self.all_text = []
         else:
             logger.info("Creating features from dataset file at %s", args.data_dir)
             examples = read_examples_from_file(args.data_dir, mode)
@@ -48,6 +49,7 @@ class FunsdDataset(Dataset):
             if args.local_rank in [-1, 0]:
                 logger.info("Saving features into cached file %s", cached_features_file)
                 torch.save(features, cached_features_file)
+            self.all_text = [item.words for item in examples]
 
         if args.local_rank == 0 and mode == "train":
             torch.distributed.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
@@ -67,6 +69,7 @@ class FunsdDataset(Dataset):
             [f.label_ids for f in features], dtype=torch.long
         )
         self.all_bboxes = torch.tensor([f.boxes for f in features], dtype=torch.long)
+        self.all_files = [f.file_name for f in features]
 
     def __len__(self):
         return len(self.features)
@@ -78,6 +81,7 @@ class FunsdDataset(Dataset):
             self.all_segment_ids[index],
             self.all_label_ids[index],
             self.all_bboxes[index],
+            self.all_files[index],
         )
 
 
