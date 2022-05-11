@@ -96,13 +96,12 @@ class XDoc(datasets.GeneratorBasedBuilder):
                 eval_file = walk_dir(self.data_dir)
                 train_file = []
         else:
-
             if self.is_tar_file:
                 eval_file = osp.join(self.data_dir, "eval", "eval.tar.gz")
                 train_file = osp.join(self.data_dir, "train", "train.tar.gz")
             else:
                 train_file = walk_dir(osp.join(self.data_dir, "train"))
-                eval_file = walk_dir(osp.join(self.data_dir, "train"))
+                eval_file = walk_dir(osp.join(self.data_dir, "eval"))
 
         data_dir = dl_manager.download_and_extract({
             "train": train_file, "eval": eval_file}
