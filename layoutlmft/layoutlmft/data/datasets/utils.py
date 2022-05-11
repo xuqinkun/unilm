@@ -3,11 +3,24 @@ import os
 import os.path as osp
 import json
 import re
+import http.client as http_client
 from json.decoder import JSONDecodeError
 from layoutlmft.data.utils import normalize_bbox, merge_bbox, simplify_bbox
 
 pattern_rar = "^(\s|\S)*\.((rar|zip|gz)(\.lock)?)$"
 pattern_img = "^((\s|\S)*\.)?(png|jpg|jpeg)$"
+
+
+def ocr(img_path):
+    conn = http_client.HTTPConnection("222.128.127.248:10021")
+    with open(img_path, 'rb') as f:
+        conn.request("POST", url='/icr/recognize_table_multipage', body=f.read())
+        res = conn.getresponse()
+        data = res.read()
+        str_resp = data.decode("utf-8")
+    if isinstance(str_resp, str):
+        str_resp = json.loads(str_resp)
+    return str_resp
 
 
 def get_file_index(path_or_paths):

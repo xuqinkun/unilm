@@ -94,6 +94,7 @@ def main():
         pred_only=data_args.pred_only,
         is_tar_file=data_args.is_tar_file,
         ocr_path=data_args.ocr_path,
+        force_ocr=data_args.force_ocr,
         download_mode=download_mode,
         version=data_args.version,
         output_dir=training_args.output_dir,

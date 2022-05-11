@@ -62,7 +62,6 @@ def get2PolyInterSectAreaSize(ImShape, Polygon1, Polygon2):
         ret_size = (w, h)
     return ret_size
 
-
 class Word:
 
     def __init__(self, line_id=None, x_pos=0, y_pos=0, word='', need=True):
