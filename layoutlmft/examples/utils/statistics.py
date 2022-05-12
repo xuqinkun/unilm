@@ -18,7 +18,7 @@ pattern_map = {
 
 def load_model(checkpoint, model):
     state_dict = torch.load(os.path.join(checkpoint, WEIGHTS_NAME))
-    model.load_state_dict(state_dict)
+    model.load_state_dict(state_dict, strict=False)
 
 
 def do_predict(label_list, datasets, id_to_word, true_predictions, full_doc=False):

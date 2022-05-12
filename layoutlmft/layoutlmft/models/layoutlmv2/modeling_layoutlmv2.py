@@ -627,6 +627,7 @@ class LayoutLMv2Model(LayoutLMv2PreTrainedModel):
 
         self.encoder = LayoutLMv2Encoder(config)
         self.pooler = LayoutLMv2Pooler(config)
+        self.classfier = nn.CrossEntropyLoss()
 
         self.init_weights()
 
