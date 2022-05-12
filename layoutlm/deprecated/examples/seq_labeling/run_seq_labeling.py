@@ -19,6 +19,7 @@ from __future__ import absolute_import, division, print_function
 
 import argparse
 import glob
+import json
 import logging
 import os
 import random
@@ -26,6 +27,7 @@ import shutil
 
 import numpy as np
 import torch
+from eval import convert_predictions_to_dict
 from seqeval.metrics import (
     classification_report,
     f1_score,
@@ -50,6 +52,8 @@ from transformers import (
 )
 
 from layoutlm import FunsdDataset, LayoutlmConfig, LayoutlmForTokenClassification
+from seqeval.metrics import classification_report
+import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +97,7 @@ def get_labels(path):
 
 
 def train(  # noqa C901
-    args, train_dataset, model, tokenizer, labels, pad_token_label_id
+        args, train_dataset, model, tokenizer, labels, pad_token_label_id
 ):
     """ Train the model """
     if args.local_rank in [-1, 0]:
@@ -115,15 +119,15 @@ def train(  # noqa C901
     if args.max_steps > 0:
         t_total = args.max_steps
         args.num_train_epochs = (
-            args.max_steps
-            // (len(train_dataloader) // args.gradient_accumulation_steps)
-            + 1
+                args.max_steps
+                // (len(train_dataloader) // args.gradient_accumulation_steps)
+                + 1
         )
     else:
         t_total = (
-            len(train_dataloader)
-            // args.gradient_accumulation_steps
-            * args.num_train_epochs
+                len(train_dataloader)
+                // args.gradient_accumulation_steps
+                * args.num_train_epochs
         )
 
     # Prepare optimizer and schedule (linear warmup and decay)
@@ -247,13 +251,13 @@ def train(  # noqa C901
                 global_step += 1
 
                 if (
-                    args.local_rank in [-1, 0]
-                    and args.logging_steps > 0
-                    and global_step % args.logging_steps == 0
+                        args.local_rank in [-1, 0]
+                        and args.logging_steps > 0
+                        and global_step % args.logging_steps == 0
                 ):
                     # Log metrics
                     if (
-                        args.local_rank in [-1, 0] and args.evaluate_during_training
+                            args.local_rank in [-1, 0] and args.evaluate_during_training
                     ):  # Only evaluate when single GPU otherwise metrics may not average well
                         results, _ = evaluate(
                             args,
@@ -276,9 +280,9 @@ def train(  # noqa C901
                     logging_loss = tr_loss
 
                 if (
-                    args.local_rank in [-1, 0]
-                    and args.save_steps > 0
-                    and global_step % args.save_steps == 0
+                        args.local_rank in [-1, 0]
+                        and args.save_steps > 0
+                        and global_step % args.save_steps == 0
                 ):
                     # Save model checkpoint
                     output_dir = os.path.join(
@@ -328,6 +332,7 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
     preds = None
     out_label_ids = None
     model.eval()
+    files = []
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         with torch.no_grad():
             inputs = {
@@ -349,7 +354,7 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
                 tmp_eval_loss = (
                     tmp_eval_loss.mean()
                 )  # mean() to average on multi-gpu parallel evaluating
-
+            files += list(batch[5])
             eval_loss += tmp_eval_loss.item()
         nb_eval_steps += 1
         if preds is None:
@@ -360,36 +365,58 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
             out_label_ids = np.append(
                 out_label_ids, inputs["labels"].detach().cpu().numpy(), axis=0
             )
-
-    eval_loss = eval_loss / nb_eval_steps
-    preds = np.argmax(preds, axis=2)
+    results = {}
+    results["loss"] = eval_loss / nb_eval_steps
+    probs, preds = torch.max(F.softmax(torch.tensor(preds), dim=2), dim=2)
 
     label_map = {i: label for i, label in enumerate(labels)}
 
     out_label_list = [[] for _ in range(out_label_ids.shape[0])]
     preds_list = [[] for _ in range(out_label_ids.shape[0])]
+    preds_classes = [[] for _ in range(out_label_ids.shape[0])]
 
+    all_texts = eval_dataset.all_text
     for i in range(out_label_ids.shape[0]):
+        tokens = []
         for j in range(out_label_ids.shape[1]):
             if out_label_ids[i, j] != pad_token_label_id:
+                token = tokenizer.convert_ids_to_tokens(eval_dataset.all_input_ids[i][j].item())
+                tokens.append(token)
                 out_label_list[i].append(label_map[out_label_ids[i][j]])
-                preds_list[i].append(label_map[preds[i][j]])
+                preds_list[i].append(preds[i][j].item())
+                preds_classes[i].append(label_map[preds[i][j].item()])
+    sroie_root = '/home/std2020/xuqinkun/data/SROIE2019'
+    annotation_path = os.path.join(sroie_root, 'test/entities')
+    probs = probs.cpu().numpy().tolist()
+    num_pred = 0
+    num_correct = 0
+    num_gt = 0
+    for file, text, pred_one_doc, probs in zip(files, all_texts, preds_list, probs):
+        pred_entity = convert_predictions_to_dict(label_map, text, pred_one_doc, probs)
+        num_pred += len(pred_entity)
 
-    results = {
-        "loss": eval_loss,
-        "precision": precision_score(out_label_list, preds_list),
-        "recall": recall_score(out_label_list, preds_list),
-        "f1": f1_score(out_label_list, preds_list),
-    }
-
-    report = classification_report(out_label_list, preds_list)
-    logger.info("\n" + report)
+        with open(os.path.join(annotation_path, file + ".txt"), 'r') as f:
+            gt_entity = json.load(f)
+        num_gt += len(gt_entity)
+        for key, value in gt_entity.items():
+            if key in pred_entity and pred_entity[key] == value:
+                num_correct += 1
+    # report = classification_report(out_label_list, preds_list)
+    precision = num_correct / num_pred
+    recall = num_correct / num_gt
+    results["precision"] = precision
+    results["recall"] = recall
+    results["f1"] = 2 * precision * recall / (precision + recall)
+    print(results)
+    # print(report)
+    # report = classification_report(out_label_list, preds_list)
+    # logger.info("\n" + report)
 
     logger.info("***** Eval results %s *****", prefix)
     for key in sorted(results.keys()):
         logger.info("  %s = %s", key, str(results[key]))
 
-    return results, preds_list
+    return results, preds_classes
 
 
 def main():  # noqa C901
@@ -416,7 +443,7 @@ def main():  # noqa C901
         type=str,
         required=True,
         help="Path to pre-trained model or shortcut name selected in the list: "
-        + ", ".join(ALL_MODELS),
+             + ", ".join(ALL_MODELS),
     )
     parser.add_argument(
         "--output_dir",
@@ -456,7 +483,7 @@ def main():  # noqa C901
         default=512,
         type=int,
         help="The maximum total input sequence length after tokenization. Sequences longer "
-        "than this will be truncated, sequences shorter will be padded.",
+             "than this will be truncated, sequences shorter will be padded.",
     )
     parser.add_argument(
         "--do_train", action="store_true", help="Whether to run training."
@@ -570,7 +597,7 @@ def main():  # noqa C901
         type=str,
         default="O1",
         help="For fp16: Apex AMP optimization level selected in ['O0', 'O1', 'O2', and 'O3']."
-        "See details at https://nvidia.github.io/apex/amp.html",
+             "See details at https://nvidia.github.io/apex/amp.html",
     )
     parser.add_argument(
         "--local_rank",
@@ -587,9 +614,9 @@ def main():  # noqa C901
     args = parser.parse_args()
 
     if (
-        os.path.exists(args.output_dir)
-        and os.listdir(args.output_dir)
-        and args.do_train
+            os.path.exists(args.output_dir)
+            and os.listdir(args.output_dir)
+            and args.do_train
     ):
         if not args.overwrite_output_dir:
             raise ValueError(
@@ -601,17 +628,17 @@ def main():  # noqa C901
             if args.local_rank in [-1, 0]:
                 shutil.rmtree(args.output_dir)
 
-    if not os.path.exists(args.output_dir) and (args.do_eval or args.do_predict):
-        raise ValueError(
-            "Output directory ({}) does not exist. Please train and save the model before inference stage.".format(
-                args.output_dir
-            )
-        )
+    # if not os.path.exists(args.output_dir) and (args.do_eval or args.do_predict):
+    #     raise ValueError(
+    #         "Output directory ({}) does not exist. Please train and save the model before inference stage.".format(
+    #             args.output_dir
+    #         )
+    #     )
 
     if (
-        not os.path.exists(args.output_dir)
-        and args.do_train
-        and args.local_rank in [-1, 0]
+            not os.path.exists(args.output_dir)
+            and args.do_train
+            and args.local_rank in [-1, 0]
     ):
         os.makedirs(args.output_dir)
 
@@ -782,7 +809,7 @@ def main():  # noqa C901
         )
         with open(output_test_predictions_file, "w", encoding="utf8") as writer:
             with open(
-                os.path.join(args.data_dir, "test.txt"), "r", encoding="utf8"
+                    os.path.join(args.data_dir, "test.txt"), "r", encoding="utf8"
             ) as f:
                 example_id = 0
                 for line in f:
@@ -792,10 +819,10 @@ def main():  # noqa C901
                             example_id += 1
                     elif predictions[example_id]:
                         output_line = (
-                            line.split()[0]
-                            + " "
-                            + predictions[example_id].pop(0)
-                            + "\n"
+                                line.split()[0]
+                                + " "
+                                + predictions[example_id].pop(0)
+                                + "\n"
                         )
                         writer.write(output_line)
                     else:

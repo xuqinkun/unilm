@@ -130,6 +130,9 @@ class DataTrainingArguments:
     template_lang: Optional[str] = field(
         default='en', metadata={"help": "The template language."}
     )
+    force_ocr: Optional[bool] = field(
+        default=False, metadata={"help": "Need call ocr api."}
+    )
 
 
 @dataclass

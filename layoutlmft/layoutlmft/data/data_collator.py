@@ -46,7 +46,7 @@ class DataCollatorForKeyValueExtraction:
     def __call__(self, features):
         label_name = "label" if "label" in features[0].keys() else "labels"
         labels = [feature[label_name] for feature in features] if label_name in features[0].keys() else None
-
+        image = None
         has_image_input = "image" in features[0]
         has_bbox_input = "bbox" in features[0]
         if has_image_input:
