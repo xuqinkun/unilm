@@ -67,4 +67,4 @@ except:
     cls._model_mapping = MODEL_FOR_RELATION_EXTRACTION_MAPPING
     cls.__name__ = "AutoModelForRelationExtraction"
 
-    AutoModelForRelationExtraction = auto_class_update(cls, head_doc="token classification")
+    # AutoModelForRelationExtraction = auto_class_update(cls, head_doc="token classification")
