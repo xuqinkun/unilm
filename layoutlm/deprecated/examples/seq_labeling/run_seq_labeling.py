@@ -34,6 +34,7 @@ from seqeval.metrics import (
     precision_score,
     recall_score,
 )
+from pathlib import Path
 from tensorboardX import SummaryWriter
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
@@ -52,7 +53,6 @@ from transformers import (
 )
 
 from layoutlm import FunsdDataset, LayoutlmConfig, LayoutlmForTokenClassification
-from seqeval.metrics import classification_report
 import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
@@ -313,7 +313,7 @@ def train(  # noqa C901
 
 def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""):
     eval_dataset = FunsdDataset(args, tokenizer, labels, pad_token_label_id, mode=mode)
-
+    data_dir = Path(args.data_dir)
     args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
     eval_sampler = SequentialSampler(eval_dataset)
     eval_dataloader = DataLoader(
@@ -365,8 +365,7 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
             out_label_ids = np.append(
                 out_label_ids, inputs["labels"].detach().cpu().numpy(), axis=0
             )
-    results = {}
-    results["loss"] = eval_loss / nb_eval_steps
+    # results = {"loss": eval_loss / nb_eval_steps}
     probs, preds = torch.max(F.softmax(torch.tensor(preds), dim=2), dim=2)
 
     label_map = {i: label for i, label in enumerate(labels)}
@@ -374,7 +373,14 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
     out_label_list = [[] for _ in range(out_label_ids.shape[0])]
     preds_list = [[] for _ in range(out_label_ids.shape[0])]
     preds_classes = [[] for _ in range(out_label_ids.shape[0])]
-
+    flatten_label_ids = out_label_ids.reshape((-1,)).tolist()
+    flatten_pred_ids = torch.flatten(preds).numpy().tolist()
+    flatten_label_list = []
+    flatten_pred_list = []
+    for label_id, pred_id in zip(flatten_label_ids, flatten_pred_ids):
+        if label_id != pad_token_label_id:
+            flatten_label_list.append(label_map[label_id])
+            flatten_pred_list.append(label_map[pred_id])
     all_texts = eval_dataset.all_text
     for i in range(out_label_ids.shape[0]):
         tokens = []
@@ -385,36 +391,41 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
                 out_label_list[i].append(label_map[out_label_ids[i][j]])
                 preds_list[i].append(preds[i][j].item())
                 preds_classes[i].append(label_map[preds[i][j].item()])
-    sroie_root = '/home/std2020/xuqinkun/data/SROIE2019'
-    annotation_path = os.path.join(sroie_root, 'test/entities')
+    print("Data:" + data_dir.parent.stem)
+    annotation_path = data_dir.parent / 'test' / 'entities'
     probs = probs.cpu().numpy().tolist()
     num_pred = 0
     num_correct = 0
     num_gt = 0
-    for file, text, pred_one_doc, probs in zip(files, all_texts, preds_list, probs):
-        pred_entity = convert_predictions_to_dict(label_map, text, pred_one_doc, probs)
-        num_pred += len(pred_entity)
+    if args.eval_strict:
+        print("****Strict eval model, which will compare entity****")
+        for file, text, pred_one_doc, probs in zip(files, all_texts, preds_list, probs):
+            pred_entity = convert_predictions_to_dict(label_map, text, pred_one_doc, probs)
+            num_pred += len(pred_entity)
 
-        with open(os.path.join(annotation_path, file + ".txt"), 'r') as f:
-            gt_entity = json.load(f)
-        num_gt += len(gt_entity)
-        for key, value in gt_entity.items():
-            if key in pred_entity and pred_entity[key] == value:
-                num_correct += 1
-    # report = classification_report(out_label_list, preds_list)
-    precision = num_correct / num_pred
-    recall = num_correct / num_gt
-    results["precision"] = precision
-    results["recall"] = recall
-    results["f1"] = 2 * precision * recall / (precision + recall)
-    print(results)
-    # print(report)
-    # report = classification_report(out_label_list, preds_list)
-    # logger.info("\n" + report)
-
-    logger.info("***** Eval results %s *****", prefix)
+            with open(os.path.join(annotation_path, file + ".txt"), 'r') as f:
+                gt_entity = json.load(f)
+            num_gt += len(gt_entity)
+            for key, value in gt_entity.items():
+                if key in pred_entity and pred_entity[key] == value:
+                    num_correct += 1
+        precision = num_correct / num_pred
+        recall = num_correct / num_gt
+        results = {"precision": precision,
+                   "recall": recall,
+                   "f1": 2 * precision * recall / (precision + recall) if precision != 0 and recall != 0 else 0
+                   }
+    else:
+        results = {
+            "precision": precision_score(flatten_label_list, flatten_pred_list),
+            "recall": recall_score(flatten_label_list, flatten_pred_list),
+            "f1": f1_score(flatten_label_list, flatten_pred_list),
+        }
+    report = classification_report(flatten_label_list, flatten_pred_list)
+    print(report)
+    print("***** Eval results %s *****")
     for key in sorted(results.keys()):
-        logger.info("  %s = %s", key, str(results[key]))
+        print(f"{key} = {100 * results[key]:.2f}%")
 
     return results, preds_classes
 
@@ -603,6 +614,12 @@ def main():  # noqa C901
         "--local_rank",
         type=int,
         default=-1,
+        help="For distributed training: local_rank",
+    )
+    parser.add_argument(
+        "--eval_strict",
+        type=bool,
+        default=False,
         help="For distributed training: local_rank",
     )
     parser.add_argument(
