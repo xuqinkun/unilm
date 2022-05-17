@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
 import os.path as osp
-import json
-import re
 import http.client as http_client
 from json.decoder import JSONDecodeError
 from layoutlmft.data.utils import normalize_bbox, merge_bbox, simplify_bbox

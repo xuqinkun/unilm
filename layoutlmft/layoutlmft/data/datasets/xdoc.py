@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import random
 from pathlib import Path
 
 import datasets
@@ -51,10 +52,10 @@ class XDoc(datasets.GeneratorBasedBuilder):
         self.label_names = list(self.label_map.values())
         self.ocr_path = None
         self.force_ocr = None
-        if "ocr_path" in kwargs:
+        if "ocr_path" in kwargs and kwargs['ocr_path']:
             self.ocr_path = Path(kwargs['ocr_path'])
             self.ocr_path.mkdir(exist_ok=True)
-        if 'force_ocr' in kwargs:
+        if 'force_ocr' in kwargs and kwargs['force_ocr']:
             self.force_ocr = kwargs['force_ocr']
         self.labels = ["O"]
         for label in self.label_names:

@@ -209,8 +209,10 @@ def train(  # noqa C901
         )
         for step, batch in enumerate(epoch_iterator):
             model.train()
+            input_ids = batch[0]
+
             inputs = {
-                "input_ids": batch[0].to(args.device),
+                "input_ids": input_ids.to(args.device),
                 "attention_mask": batch[1].to(args.device),
                 "labels": batch[3].to(args.device),
             }
@@ -324,24 +326,89 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
     )
 
     # Eval!
-    logger.info("***** Running evaluation %s *****", prefix)
-    logger.info("  Num examples = %d", len(eval_dataset))
-    logger.info("  Batch size = %d", args.eval_batch_size)
+    print("***** Running evaluation %s *****" % prefix)
+    print("  Num examples = %d" % len(eval_dataset))
+    print("  Batch size = %d" % args.eval_batch_size)
     eval_loss = 0.0
     nb_eval_steps = 0
     preds = None
     out_label_ids = None
     model.eval()
     files = []
+    perturb_prob = 0
+    mask_bbox_prob = 0.1
+    left_bbox_prob = 0.2
+    right_bbox_prob = 0.3
+    narrow_bbox_prob = 0.4
+    amplify_bbox_prob = 0.5
+
+    print(f" perturb_prob = {perturb_prob}")
+    print(f" mask_bbox_prob = {mask_bbox_prob}")
+    print(f" left_bbox_prob = {left_bbox_prob}")
+    print(f" right_bbox_prob = {right_bbox_prob}")
+    print(f" narrow_bbox_prob = {narrow_bbox_prob}")
+    print(f" amplify_bbox_prob = {amplify_bbox_prob}")
+
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         with torch.no_grad():
+            input_ids = batch[0]
+            new_ids = torch.randint_like(input_ids, tokenizer.vocab_size)
+            prob_mat = torch.rand(input_ids.shape)
+            input_ids = torch.where(prob_mat < perturb_prob, new_ids, input_ids)
             inputs = {
-                "input_ids": batch[0].to(args.device),
+                "input_ids": input_ids.to(args.device),
                 "attention_mask": batch[1].to(args.device),
                 "labels": batch[3].to(args.device),
             }
             if args.model_type in ["layoutlm"]:
-                inputs["bbox"] = batch[4].to(args.device)
+                perturb_bbox = torch.clone(batch[4])
+                max_x = max(perturb_bbox[:, :, 0].max(), perturb_bbox[:, :, 2].max())
+                max_y = max(perturb_bbox[:, :, 1].max(), perturb_bbox[:, :, 3].max())
+                zero_bbox = torch.zeros_like(perturb_bbox)
+
+                B, L, D = perturb_bbox.shape
+                left_bbox = torch.cat((perturb_bbox[:, :-1, :], torch.zeros((B, 1, D), dtype=torch.int64)), dim=1)
+                right_bbox = torch.cat((perturb_bbox[:, 1:, :], torch.zeros((B, 1, D), dtype=torch.int64)), dim=1)
+
+                scale_bbox = torch.randint(0, 10, (B, L, 2))
+                narrow_bbox = torch.cat((scale_bbox, -scale_bbox), dim=2)
+                amplify_bbox = torch.cat((-scale_bbox, scale_bbox), dim=2)
+                prob_mat = torch.rand((B, L)).unsqueeze(dim=2)
+                prob_stack = prob_mat.repeat(1, 1, D)
+                # Mask perturb_bbox
+                perturb_bbox = torch.where(prob_stack < mask_bbox_prob, zero_bbox, perturb_bbox)
+                # Replace by left perturb_bbox
+                left_prob_mat = torch.where(prob_stack > left_bbox_prob, torch.zeros_like(prob_stack), prob_stack)
+                perturb_bbox = torch.where(mask_bbox_prob <= left_prob_mat, left_bbox, perturb_bbox)
+                # Replace by right perturb_bbox
+                right_prob_mat = torch.where(prob_stack > right_bbox_prob, torch.zeros_like(prob_stack), prob_stack)
+                perturb_bbox = torch.where(left_bbox_prob <= right_prob_mat, right_bbox, perturb_bbox)
+                # Narrow perturb_bbox
+                narrow_prob_mat = torch.where(prob_stack > narrow_bbox_prob, torch.zeros_like(prob_stack),
+                                              prob_stack)
+                perturb_bbox = torch.where(right_bbox_prob <= narrow_prob_mat, narrow_bbox, perturb_bbox)
+                # Amplify perturb_bbox
+                amplify_prob_mat = torch.where(prob_stack > amplify_bbox_prob, torch.zeros_like(prob_stack),
+                                               prob_stack)
+                perturb_bbox = torch.where(narrow_bbox_prob <= amplify_prob_mat, amplify_bbox, perturb_bbox)
+                perturb_bbox = torch.where(perturb_bbox < 0, zero_bbox, perturb_bbox)
+                ones_bbox = torch.ones((B, L), dtype=torch.int64)
+                # Replace items greater than max
+                perturb_bbox[:, :, 0] = torch.where(perturb_bbox[:, :, 0] > max_x, ones_bbox * max_x, perturb_bbox[:, :, 0])
+                perturb_bbox[:, :, 1] = torch.where(perturb_bbox[:, :, 1] > max_y,  ones_bbox * max_y, perturb_bbox[:, :, 1])
+                perturb_bbox[:, :, 2] = torch.where(perturb_bbox[:, :, 2] > max_x, ones_bbox * max_x, perturb_bbox[:, :, 2])
+                perturb_bbox[:, :, 3] = torch.where(perturb_bbox[:, :, 3] > max_y, ones_bbox * max_y, perturb_bbox[:, :, 3])
+                left_upper_points = perturb_bbox[:, :, :2]
+                right_bottom_points = perturb_bbox[:, :, 2:]
+                left_upper_bbox = torch.cat((left_upper_points, left_upper_points), dim=2)
+                right_bottom_bbox = torch.cat((right_bottom_points, right_bottom_points), dim=2)
+                perturb_bbox = torch.where(left_upper_bbox > right_bottom_bbox, left_upper_bbox, perturb_bbox)
+                assert torch.all(perturb_bbox[:, :, 2:] >= perturb_bbox[:, :, :2])
+                assert torch.all(perturb_bbox >= 0)
+                if amplify_bbox_prob > 0:
+                    inputs["bbox"] = perturb_bbox.to(args.device)
+                else:
+                    inputs["bbox"] = batch[4].to(args.device)
             inputs["token_type_ids"] = (
                 batch[2].to(args.device)
                 if args.model_type in ["bert", "layoutlm"]
