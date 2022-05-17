@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 from layoutlm.deprecated.examples.seq_labeling.utils.eval import evaluate
-from transformers import logger
+from transformers.utils import logging as logger
 
 
 def do_predict(args, tokenizer_class, model_class, labels, pad_token_label_id):

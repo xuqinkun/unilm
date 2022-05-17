@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass, field
+
 from transformers import (
     BertConfig,
     BertForTokenClassification,
@@ -7,11 +8,13 @@ from transformers import (
     RobertaConfig,
     RobertaForTokenClassification,
     RobertaTokenizer,
+    AutoTokenizer,
+    LayoutLMv2Config,
 )
 
+from layoutlm.deprecated.examples.seq_labeling.models.modeling_ITA import LayoutlmForImageTextMatching
 from layoutlm.deprecated.layoutlm.modeling.layoutlm import (
     LayoutlmConfig,
-    LayoutlmForImageTextMatching,
     LayoutlmForTokenClassification
 )
 
@@ -19,15 +22,8 @@ MODEL_CLASSES = {
     "bert": (BertConfig, BertForTokenClassification, BertTokenizer),
     "roberta": (RobertaConfig, RobertaForTokenClassification, RobertaTokenizer),
     "layoutlm": (LayoutlmConfig, LayoutlmForTokenClassification, BertTokenizer),
-    "layoutlm_itm": (LayoutlmConfig, LayoutlmForImageTextMatching, BertTokenizer),
+    "layoutlm_itm": (LayoutLMv2Config, LayoutlmForImageTextMatching, AutoTokenizer),
 }
-ALL_MODELS = sum(
-    (
-        tuple(conf.pretrained_config_archive_map.keys())
-        for conf in (BertConfig, RobertaConfig, LayoutlmConfig)
-    ),
-    (),
-)
 
 
 @dataclass
@@ -42,8 +38,7 @@ class TrainingArgs:
     )
     model_name_or_path: str = field(
         default=None,
-        metadata={"help": "Path to pre-trained model or shortcut name selected in the list: "
-             + ", ".join(ALL_MODELS),}
+        metadata={"help": "Path to pre-trained model or shortcut name selected in the list: "}
     )
     output_dir: str = field(
         default=None,

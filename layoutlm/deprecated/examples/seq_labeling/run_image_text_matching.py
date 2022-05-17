@@ -17,29 +17,51 @@
 
 from __future__ import absolute_import, division, print_function
 
+
+import sys
 import logging
 import os
+import os.path
+import random
 import shutil
-
+import numpy as np
 import torch
-from torch.nn import CrossEntropyLoss
-from transformers import HfArgumentParser
 
-from layoutlm.deprecated.examples.seq_labeling.utils.eval import do_eval
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.abspath(__file__))
+
+from data.ITMDataset import ITMDataset
+from torch.nn import CrossEntropyLoss
+
+from transformers import HfArgumentParser
+from layoutlm.deprecated.examples.seq_labeling.utils.train import do_train
 from layoutlm.deprecated.examples.seq_labeling.utils.predict import do_predict
-from layoutlm.deprecated.examples.seq_labeling.utils.train import do_train, set_seed
+from layoutlm.deprecated.examples.seq_labeling.utils.eval import do_eval
 from layoutlm.deprecated.examples.seq_labeling.utils.training_args import TrainingArgs, MODEL_CLASSES
-from layoutlm.deprecated.layoutlm.data.funsd import FunsdDataset
 
 logger = logging.getLogger(__name__)
 
 
-def get_labels(path):
-    with open(path, "r") as f:
-        labels = f.read().splitlines()
-    if "O" not in labels:
-        labels = ["O"] + labels
-    return labels
+def set_seed(args):
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if args.n_gpu > 0:
+        torch.cuda.manual_seed_all(args.seed)
+
+
+def collate_fn(data):
+    batch = [i for i in zip(*data)]
+    for i in range(len(batch)):
+        if i < len(batch) - 2:
+            batch[i] = torch.stack(batch[i], 0)
+    return tuple(batch)
+
+
+def get_labels():
+    return ["covered", "uncovered"]
+
+
 
 def main():  # noqa C901
     parser = HfArgumentParser(TrainingArgs)
@@ -119,14 +141,14 @@ def main():  # noqa C901
     # Set seed
     set_seed(args)
 
-    labels = get_labels(args.labels)
+    labels = get_labels()
     num_labels = len(labels)
     # Use cross entropy ignore index as padding label id so that only real label ids contribute to the loss later
     pad_token_label_id = CrossEntropyLoss().ignore_index
 
     # Load pretrained model and tokenizer
-    if args.local_rank not in [-1, 0]:
-        torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
+    # if args.local_rank not in [-1, 0]:
+    #     torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
 
     args.model_type = args.model_type.lower()
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
@@ -135,9 +157,10 @@ def main():  # noqa C901
         num_labels=num_labels,
         cache_dir=args.cache_dir if args.cache_dir else None,
     )
+
     tokenizer = tokenizer_class.from_pretrained(
         args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
-        do_lower_case=args.do_lower_case,
+        use_fast=True,
         cache_dir=args.cache_dir if args.cache_dir else None,
     )
     model = model_class.from_pretrained(
@@ -147,8 +170,8 @@ def main():  # noqa C901
         cache_dir=args.cache_dir if args.cache_dir else None,
     )
 
-    if args.local_rank == 0:
-        torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
+    # if args.local_rank == 0:
+    #     torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
 
     model.to(args.device)
 
@@ -156,7 +179,7 @@ def main():  # noqa C901
 
     # Training
     if args.do_train:
-        train_dataset = FunsdDataset(
+        train_dataset = ITMDataset(
             args, tokenizer, labels, pad_token_label_id, mode="train"
         )
         global_step, tr_loss = do_train(

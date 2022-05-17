@@ -1,18 +1,15 @@
 # -*- coding: utf-8 -*-
 
-from torch import nn
-from torch.nn import MSELoss, CrossEntropyLoss
-from layoutlmft.layoutlmft.models.layoutlmv2.modeling_layoutlmv2 import (
+from layoutlmft.models.layoutlmv2.modeling_layoutlmv2 import (
     LayoutLMv2PreTrainedModel,
     LayoutLMv2Config,
     LayoutLMv2Model
 )
+from torch import nn
+from torch.nn import CrossEntropyLoss
 
 
 class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
-    config_class = LayoutLMv2Config
-    # pretrained_model_archive_map = {}
-    base_model_prefix = "bert"
 
     def __init__(self, config):
         super(LayoutlmForImageTextMatching, self).__init__(config)
@@ -20,7 +17,7 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
 
         self.layoutlmv2 = LayoutLMv2Model(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.classifier = nn.Linear(config.hidden_size, 2)
+        self.classifier = nn.Linear(config.hidden_size, self.num_labels)
 
         self.init_weights()
 

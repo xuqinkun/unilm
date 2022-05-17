@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from layoutlm.deprecated.layoutlm.data.funsd import FunsdDataset
+from ..data.ITMDataset import ITMDataset
 from seqeval.metrics import (
     classification_report,
     f1_score,
@@ -19,13 +19,13 @@ from tqdm import tqdm
 from transformers import (
     WEIGHTS_NAME,
 )
-from transformers import logger
+from transformers.utils import logging as logger
 
-from post_processing import convert_predictions_to_dict
+from .post_processing import convert_predictions_to_dict
 
 
 def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""):
-    eval_dataset = FunsdDataset(args, tokenizer, labels, pad_token_label_id, mode=mode)
+    eval_dataset = ITMDataset(args, tokenizer, labels, pad_token_label_id, mode=mode)
     data_dir = Path(args.data_dir)
     args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
     eval_sampler = SequentialSampler(eval_dataset)

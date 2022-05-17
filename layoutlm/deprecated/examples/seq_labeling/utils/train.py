@@ -1,13 +1,46 @@
 # -*- coding: utf-8 -*-
-from transformers import (
-    WEIGHTS_NAME,
-    AdamW,
-    get_linear_schedule_with_warmup,
-)
+import os
+import random
+import logging
+import numpy as np
+import torch
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
+from transformers import (
+    AdamW,
+    get_linear_schedule_with_warmup,
+)
+
+from .eval import evaluate
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+
+def set_seed(args):
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if args.n_gpu > 0:
+        torch.cuda.manual_seed_all(args.seed)
+
+
+def collate_fn(data):
+    batch = [i for i in zip(*data)]
+    for i in range(len(batch)):
+        if i < len(batch) - 2:
+            batch[i] = torch.stack(batch[i], 0)
+    return tuple(batch)
+
+
+def get_labels(path):
+    with open(path, "r") as f:
+        labels = f.read().splitlines()
+    if "O" not in labels:
+        labels = ["O"] + labels
+    return labels
 
 
 def do_train(  # noqa C901
@@ -130,12 +163,12 @@ def do_train(  # noqa C901
                 "attention_mask": batch[1].to(args.device),
                 "labels": batch[3].to(args.device),
             }
-            if args.model_type in ["layoutlm"]:
+            if args.model_type.startswith('layoutlm'):
                 inputs["bbox"] = batch[4].to(args.device)
             inputs["token_type_ids"] = (
                 batch[2].to(args.device) if args.model_type in ["bert", "layoutlm"] else None
             )  # RoBERTa don"t use segment_ids
-
+            inputs['image'] = batch[5]
             outputs = model(**inputs)
             # model outputs are always tuple in pytorch-transformers (see doc)
             loss = outputs[0]
