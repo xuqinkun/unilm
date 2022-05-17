@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
-from eval import evaluate
+from layoutlm.deprecated.examples.seq_labeling.utils.eval import evaluate
 from transformers import logger
 
 

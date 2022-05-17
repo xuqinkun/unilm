@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from layoutlm import FunsdDataset
+from layoutlm.deprecated.layoutlm.data.funsd import FunsdDataset
 from seqeval.metrics import (
     classification_report,
     f1_score,
@@ -22,6 +22,7 @@ from transformers import (
 from transformers import logger
 
 from post_processing import convert_predictions_to_dict
+
 
 def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""):
     eval_dataset = FunsdDataset(args, tokenizer, labels, pad_token_label_id, mode=mode)

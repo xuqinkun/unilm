@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass, field
-from layoutlm.modeling.layoutlm import LayoutlmConfig, LayoutlmForImageTextMatching, LayoutlmForTokenClassification
 from transformers import (
     BertConfig,
     BertForTokenClassification,
@@ -8,6 +7,12 @@ from transformers import (
     RobertaConfig,
     RobertaForTokenClassification,
     RobertaTokenizer,
+)
+
+from layoutlm.deprecated.layoutlm.modeling.layoutlm import (
+    LayoutlmConfig,
+    LayoutlmForImageTextMatching,
+    LayoutlmForTokenClassification
 )
 
 MODEL_CLASSES = {

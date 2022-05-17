@@ -24,14 +24,14 @@ import random
 import shutil
 import numpy as np
 import torch
-from layoutlm import FunsdDataset
+from layoutlm.deprecated.layoutlm.data.funsd import FunsdDataset
 from torch.nn import CrossEntropyLoss
 
 from transformers import HfArgumentParser
-from train import do_train
-from predict import do_predict
-from eval import do_eval
-from training_args import TrainingArgs, MODEL_CLASSES
+from layoutlm.deprecated.examples.seq_labeling.utils.train import do_train
+from layoutlm.deprecated.examples.seq_labeling.utils.predict import do_predict
+from layoutlm.deprecated.examples.seq_labeling.utils.eval import do_eval
+from layoutlm.deprecated.examples.seq_labeling.utils.training_args import TrainingArgs, MODEL_CLASSES
 
 logger = logging.getLogger(__name__)
 
