@@ -124,9 +124,12 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
                     inputs["bbox"] = perturb_bbox.to(args.device)
                 else:
                     inputs["bbox"] = batch[4].to(args.device)
+            elif args.model_type == 'layoutlm_itm':
+                inputs["bbox"] = batch[4].to(args.device)
+                inputs['image'] = batch[5].to(args.device)
             inputs["token_type_ids"] = (
                 batch[2].to(args.device)
-                if args.model_type in ["bert", "layoutlm"]
+                if args.model_type in ["bert", "layoutlm", 'layoutlm_itm']
                 else None
             )  # RoBERTa don"t use segment_ids
             outputs = model(**inputs)
@@ -178,32 +181,37 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
     num_pred = 0
     num_correct = 0
     num_gt = 0
-    if args.eval_strict:
-        print("****Strict eval model, which will compare entity****")
-        for file, text, pred_one_doc, probs in zip(files, all_texts, preds_list, probs):
-            pred_entity = convert_predictions_to_dict(label_map, text, pred_one_doc, probs)
-            num_pred += len(pred_entity)
+    results = {}
+    if args.model_type == 'layoutlm':
+        if args.eval_strict:
+            print("****Strict eval model, which will compare entity****")
+            for file, text, pred_one_doc, probs in zip(files, all_texts, preds_list, probs):
+                pred_entity = convert_predictions_to_dict(label_map, text, pred_one_doc, probs)
+                num_pred += len(pred_entity)
 
-            with open(os.path.join(annotation_path, file + ".txt"), 'r') as f:
-                gt_entity = json.load(f)
-            num_gt += len(gt_entity)
-            for key, value in gt_entity.items():
-                if key in pred_entity and pred_entity[key] == value:
-                    num_correct += 1
-        precision = num_correct / num_pred
-        recall = num_correct / num_gt
-        results = {"precision": precision,
-                   "recall": recall,
-                   "f1": 2 * precision * recall / (precision + recall) if precision != 0 and recall != 0 else 0
-                   }
-    else:
-        results = {
-            "precision": precision_score(flatten_label_list, flatten_pred_list),
-            "recall": recall_score(flatten_label_list, flatten_pred_list),
-            "f1": f1_score(flatten_label_list, flatten_pred_list),
-        }
-    report = classification_report(flatten_label_list, flatten_pred_list)
-    print(report)
+                with open(os.path.join(annotation_path, file + ".txt"), 'r') as f:
+                    gt_entity = json.load(f)
+                num_gt += len(gt_entity)
+                for key, value in gt_entity.items():
+                    if key in pred_entity and pred_entity[key] == value:
+                        num_correct += 1
+            precision = num_correct / num_pred
+            recall = num_correct / num_gt
+            results = {"precision": precision,
+                       "recall": recall,
+                       "f1": 2 * precision * recall / (precision + recall) if precision != 0 and recall != 0 else 0
+                       }
+        else:
+            results = {
+                "precision": precision_score(flatten_label_list, flatten_pred_list),
+                "recall": recall_score(flatten_label_list, flatten_pred_list),
+                "f1": f1_score(flatten_label_list, flatten_pred_list),
+            }
+        report = classification_report(flatten_label_list, flatten_pred_list)
+        print(report)
+    elif args.model_type == 'layoutlm_itm':
+        nb_correct = sum([1 if l1 == l2 else 0 for l1, l2 in zip(flatten_label_list, flatten_pred_list)])
+        results = {"accuracy": nb_correct/len(flatten_label_list)}
     print("***** Eval results %s *****")
     for key in sorted(results.keys()):
         print(f"{key} = {100 * results[key]:.2f}%")

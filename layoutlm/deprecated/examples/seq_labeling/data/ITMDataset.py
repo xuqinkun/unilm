@@ -18,7 +18,8 @@ logging.basicConfig(level=logging.INFO)
 class ITMDataset(Dataset):
     def __init__(self, args, tokenizer, labels, pad_token_label_id, mode):
         # if args.local_rank not in [-1, 0] and mode == "train":
-        #     torch.distributed.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
+        # Make sure only the first process in distributed training process the dataset, and the others will use the cache
+        #     torch.distributed.barrier()
 
         # Load data features from cache or dataset file
         cached_features_file = os.path.join(
@@ -57,9 +58,10 @@ class ITMDataset(Dataset):
             if args.local_rank in [-1, 0]:
                 logger.info("Saving features into cached file %s", cached_features_file)
                 torch.save(features, cached_features_file)
-
+        # Make sure only the first process in distributed training process the dataset,
+        # and the others will use the cache
         # if args.local_rank == 0 and mode == "train":
-        #     torch.distributed.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
+        #     torch.distributed.barrier()
 
         self.features = features
         # Convert to Tensors and build dataset

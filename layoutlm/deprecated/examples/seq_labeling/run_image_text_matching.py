@@ -119,7 +119,7 @@ def main():  # noqa C901
         torch.distributed.init_process_group(backend="nccl")
         args.n_gpu = 1
     args.device = device
-
+    logger.info(device)
     # Setup logging
     logging.basicConfig(
         filename=os.path.join(args.output_dir, "train.log")
@@ -147,8 +147,9 @@ def main():  # noqa C901
     pad_token_label_id = CrossEntropyLoss().ignore_index
 
     # Load pretrained model and tokenizer
+    # Make sure only the first process in distributed training will download model & vocab
     # if args.local_rank not in [-1, 0]:
-    #     torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
+    #     torch.distributed.barrier()
 
     args.model_type = args.model_type.lower()
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
@@ -170,8 +171,9 @@ def main():  # noqa C901
         cache_dir=args.cache_dir if args.cache_dir else None,
     )
 
+    # Make sure only the first process in distributed training will download model & vocab
     # if args.local_rank == 0:
-    #     torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
+    #     torch.distributed.barrier()
 
     model.to(args.device)
 
