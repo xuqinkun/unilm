@@ -1,12 +1,12 @@
-import json
-import torch
 import cv2
 import numpy as np
+import torch
 from detectron2.data.detection_utils import read_image
 from detectron2.data.transforms import ResizeTransform, TransformList
 
 
 def normalize_bbox(bbox, size):
+    bbox = simplify_bbox(bbox)
     return [
         int(1000 * bbox[0] / size[0]),
         int(1000 * bbox[1] / size[1]),

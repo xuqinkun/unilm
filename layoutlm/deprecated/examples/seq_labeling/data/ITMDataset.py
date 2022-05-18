@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 import os
+import sys
 import logging
 import torch
 import random
 from torch.utils.data import Dataset
-import sys
-
+from ast import literal_eval
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from pathlib import Path
-from layoutlmft.data.utils import load_image, normalize_bbox
+from layoutlmft.data.utils import load_image, normalize_bbox, simplify_bbox
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
@@ -36,12 +36,13 @@ class ITMDataset(Dataset):
             self.all_text = []
         else:
             logger.info("Creating features from dataset file at %s", args.data_dir)
-            examples = read_examples_from_file(Path(args.data_dir), mode)
+            examples = read_examples_from_file(Path(args.data_dir), mode, tokenizer.vocab)
             features = convert_examples_to_features(
                 examples,
                 labels,
                 args.max_seq_length,
                 tokenizer,
+                local_rank=args.local_rank,
                 cls_token_at_end=bool(args.model_type in ["xlnet"]),
                 # xlnet has a cls token at the end
                 cls_token=tokenizer.cls_token,
@@ -94,89 +95,97 @@ class ITMDataset(Dataset):
         )
 
 
-def read_examples_from_file(data_dir: Path, mode):
-    image_file_path = data_dir / f"{mode}_image.txt"
-    image_dir = data_dir.parent / mode / 'img'
+def read_examples_from_file(data_dir: Path, mode, vocab: dict):
+    box_dir = data_dir / mode / 'box'
+    image_dir = data_dir / mode / 'img'
+    box_files = sorted(box_dir.glob("*.txt"))
+    img_files = sorted(image_dir.glob("*.jpg"))
     guid_index = 1
     examples = []
-    with open(image_file_path, encoding="utf-8") as fi:
+    for img_file, box_file in tqdm(zip(img_files, box_files)):
+        assert img_file.stem == box_file.stem
+        content = box_file.read_text().split("\n")
         lines, labels, bboxes = [], [], []
-        for line in fi:
-            if line.startswith("-DOCSTART-") or line == "" or line == "\n":
-                examples.append(
-                    InputExample(
-                        guid="{}-{}".format(mode, guid_index),
-                        lines=lines,
-                        labels=labels,
-                        bboxes=bboxes,
-                        page_size=page_size,
-                        image=image,
-                    )
-                )
-                lines, labels, bboxes = [], [], []
-            else:
-                line = line.split("\t")
-                assert len(line) == 4
-                lines.append(line[0])
-                width, height = line[2].split(" ")
-                page_size = (int(width), int(height))
-                bboxes.append(normalize_bbox([int(p) for p in line[1].split(" ")], page_size))
-                image = image_dir / f'{line[3][:-1]}.jpg'
-                labels.append('covered')
+        image, image_size = load_image(img_file)
+        for line in content:
+            if line.strip() == '':
+                continue
+            items = line.split(",")
+            text = ",".join(items[8:])
+            lines.append(text)
+            box = literal_eval(",".join(items[:8]))
+            bboxes.append(normalize_bbox(simplify_bbox(box), image_size))
+            labels.append('covered')
+        examples.append(
+            InputExample(
+                guid="{}-{}".format(mode, guid_index),
+                lines=lines,
+                labels=labels,
+                bboxes=bboxes,
+                image_size=image_size,
+                image=image,
+            )
+        )
 
-    perturb(examples)
+    perturb(examples, vocab)
     return examples
 
 
-def perturb(examples: list):
+def perturb(examples: list, vocab: dict):
     # Perturbation for image text alignment and 15% uncovered,
     # among which 30% random line, 30% random image and 40% random bbox
     it_uncovered_prob = 0.15
-    replace_text_prob = 0.5
+    replace_text_prob = 0.8
     wrong_img_prob = 0.6
-    local_prob = 0.9
+    replace_token_prob = 0.7
+    replace_line_prob = 0.9
     sample_size = len(examples)
+    id2tokens = {v: k for k, v in vocab.items()}
     for i, example in enumerate(examples):
         for j in range(len(example.lines)):
-            if random.random() > it_uncovered_prob:
-                # 85%概率为uncovered image text
-                prob = random.random()
-                example.labels[j] = 'uncovered'
-                new_id = random.randint(0, sample_size - 1)
-                while new_id == i:
-                    new_id = random.randint(0, sample_size - 1)
-                if prob < replace_text_prob:
-                    # 其中50%的概率用同一个文档的数据进行替换
-                    if random.random() < local_prob:
-                        # 90%概率用同一个文档的文本替换
-                        new_j = random.randint(0, len(example.lines) - 1)
-                        while j == new_j:
-                            new_j = random.randint(0, len(example.lines) - 1)
-                        example.lines[j] = example.lines[new_j]
-                    else:
-                        # 10%概率用其他文档文本替换
-                        target_example = examples[new_id]
-                        new_j = random.randint(0, len(target_example.lines) - 1)
-                        while j == new_j:
-                            new_j = random.randint(0, len(target_example.lines) - 1)
-                        examples[i].lines[j] = target_example.lines[new_j]
-                # elif prob < wrong_img_prob:
-                #     # 10% 概率替换image
-                #     example.image = examples[new_id].image
+            if random.random() < it_uncovered_prob:
+                continue
+            # 85%概率为uncovered image text
+            prob = random.random()
+            example.labels[j] = 'uncovered'
+            if prob < replace_text_prob:
+                # 80%概率进行文本替换
+                p = random.random()
+                if p < replace_line_prob:
+                    line = example.lines[j]
+                    words = line.split(" ")
+                    for k, w in enumerate(words):
+                        if random.random() < replace_token_prob:
+                            # replace_token_prob概率用同字典中的其他token进行替换
+                            new_j = random.randint(0, len(vocab) - 1)
+                            while j == new_j:
+                                new_j = random.randint(0, len(vocab) - 1)
+                            words[k] = id2tokens[new_j]
+                    example.lines[j] = " ".join(words)
                 else:
-                    # 剩下40%替换bbox
-                    new_j = random.randint(0, len(example.bboxes) - 1)
+                    # 10%概率用其他文档文本替换
+                    new_id = random.randint(0, sample_size - 1)
+                    while new_id == i:
+                        new_id = random.randint(0, sample_size - 1)
+                    target_example = examples[new_id]
+                    new_j = random.randint(0, len(target_example.lines) - 1)
                     while j == new_j:
-                        new_j = random.randint(0, len(example.bboxes) - 1)
-                    try:
-                        example.bboxes[j] = example.bboxes[new_j]
-                    except IndexError as e:
-                        raise e
+                        new_j = random.randint(0, len(target_example.lines) - 1)
+                    examples[i].lines[j] = target_example.lines[new_j]
+            # elif prob < wrong_img_prob:
+            #     # 10% 概率替换image
+            #     example.image = examples[new_id].image
+            else:
+                # 剩下20%概率替换bbox
+                new_j = random.randint(0, len(example.bboxes) - 1)
+                while j == new_j:
+                    new_j = random.randint(0, len(example.bboxes) - 1)
+                example.bboxes[j] = example.bboxes[new_j]
 
 
 class InputExample:
 
-    def __init__(self, guid, lines, labels, bboxes, image, page_size):
+    def __init__(self, guid, lines, labels, bboxes, image, image_size):
         """Constructs a InputExample.
 
         Args:
@@ -190,7 +199,7 @@ class InputExample:
         self.labels = labels
         self.bboxes = bboxes
         self.image = image
-        self.page_size = page_size
+        self.image_size = image_size
 
 
 def convert_examples_to_features(
@@ -198,6 +207,7 @@ def convert_examples_to_features(
         label_list,
         max_seq_length,
         tokenizer,
+        local_rank,
         cls_token_at_end=False,
         cls_token="[CLS]",
         cls_token_segment_id=1,
@@ -225,11 +235,6 @@ def convert_examples_to_features(
     features = []
     flag = True
     for example in tqdm(examples):
-        image_file = example.image
-        # if last_image_file is None or last_image_file != image_file:
-        image, page_size = load_image(image_file)
-        assert page_size == example.page_size
-
         for box, label, line in zip(example.bboxes, example.labels, example.lines):
 
             word_tokens = tokenizer.tokenize(line)
@@ -301,11 +306,11 @@ def convert_examples_to_features(
                     segment_ids=segment_ids,
                     label_ids=label_ids,
                     boxes=token_boxes,
-                    image=image,
-                    page_size=page_size,
+                    image=example.image,
+                    image_size=example.image_size,
                 )
             )
-            if flag:
+            if local_rank in [-1, 0] and flag:
                 logger.info("*** Example ***")
                 logger.info("guid: %s", example.guid)
                 logger.info("tokens: %s", " ".join([str(x) for x in word_tokens]))
@@ -329,7 +334,7 @@ class InputFeatures(object):
             label_ids,
             boxes,
             image,
-            page_size,
+            image_size,
     ):
         assert (
                 0 <= all(boxes) <= 1000
@@ -342,4 +347,4 @@ class InputFeatures(object):
         self.label_ids = label_ids
         self.boxes = boxes
         self.image = image
-        self.page_size = page_size
+        self.image_size = image_size

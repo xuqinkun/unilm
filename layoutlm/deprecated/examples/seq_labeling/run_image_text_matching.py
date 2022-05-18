@@ -210,10 +210,10 @@ def main():  # noqa C901
     # Evaluation
     results = None
     if args.do_eval and args.local_rank in [-1, 0]:
-        results = do_eval(args, tokenizer_class, model_class, labels, pad_token_label_id)
+        results = do_eval(args, tokenizer, model, labels, pad_token_label_id)
 
     if args.do_predict and args.local_rank in [-1, 0]:
-        results = do_predict(args, tokenizer_class, model_class, labels, pad_token_label_id)
+        results = do_predict(args, tokenizer, model, labels, pad_token_label_id)
 
     return results
 

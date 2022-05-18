@@ -241,7 +241,7 @@ def convert_examples_to_features(
     features = []
     for (ex_index, example) in enumerate(examples):
         file_name = example.file_name
-        page_size = example.page_size
+        page_size = example.image_size
         width, height = page_size
         if ex_index % 10000 == 0:
             logger.info("Writing example %d of %d", ex_index, len(examples))

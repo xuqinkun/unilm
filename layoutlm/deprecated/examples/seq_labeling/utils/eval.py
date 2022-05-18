@@ -19,7 +19,11 @@ from tqdm import tqdm
 from transformers import (
     WEIGHTS_NAME,
 )
-from transformers.utils import logging as logger
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 from .post_processing import convert_predictions_to_dict
 
@@ -72,54 +76,8 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
                 "labels": batch[3].to(args.device),
             }
             if args.model_type in ["layoutlm"]:
-                perturb_bbox = torch.clone(batch[4])
-                max_x = max(perturb_bbox[:, :, 0].max(), perturb_bbox[:, :, 2].max())
-                max_y = max(perturb_bbox[:, :, 1].max(), perturb_bbox[:, :, 3].max())
-                zero_bbox = torch.zeros_like(perturb_bbox)
-
-                B, L, D = perturb_bbox.shape
-                left_bbox = torch.cat((perturb_bbox[:, :-1, :], torch.zeros((B, 1, D), dtype=torch.int64)), dim=1)
-                right_bbox = torch.cat((perturb_bbox[:, 1:, :], torch.zeros((B, 1, D), dtype=torch.int64)), dim=1)
-
-                scale_bbox = torch.randint(0, 10, (B, L, 2))
-                narrow_bbox = torch.cat((scale_bbox, -scale_bbox), dim=2)
-                amplify_bbox = torch.cat((-scale_bbox, scale_bbox), dim=2)
-                prob_mat = torch.rand((B, L)).unsqueeze(dim=2)
-                prob_stack = prob_mat.repeat(1, 1, D)
-                # Mask perturb_bbox
-                perturb_bbox = torch.where(prob_stack < mask_bbox_prob, zero_bbox, perturb_bbox)
-                # Replace by left perturb_bbox
-                left_prob_mat = torch.where(prob_stack > left_bbox_prob, torch.zeros_like(prob_stack), prob_stack)
-                perturb_bbox = torch.where(mask_bbox_prob <= left_prob_mat, left_bbox, perturb_bbox)
-                # Replace by right perturb_bbox
-                right_prob_mat = torch.where(prob_stack > right_bbox_prob, torch.zeros_like(prob_stack), prob_stack)
-                perturb_bbox = torch.where(left_bbox_prob <= right_prob_mat, right_bbox, perturb_bbox)
-                # Narrow perturb_bbox
-                narrow_prob_mat = torch.where(prob_stack > narrow_bbox_prob, torch.zeros_like(prob_stack),
-                                              prob_stack)
-                perturb_bbox = torch.where(right_bbox_prob <= narrow_prob_mat, narrow_bbox, perturb_bbox)
-                # Amplify perturb_bbox
-                amplify_prob_mat = torch.where(prob_stack > amplify_bbox_prob, torch.zeros_like(prob_stack),
-                                               prob_stack)
-                perturb_bbox = torch.where(narrow_bbox_prob <= amplify_prob_mat, amplify_bbox, perturb_bbox)
-                perturb_bbox = torch.where(perturb_bbox < 0, zero_bbox, perturb_bbox)
-                ones_bbox = torch.ones((B, L), dtype=torch.int64)
-                # Replace items which are greater than max
-                perturb_bbox[:, :, 0] = torch.where(perturb_bbox[:, :, 0] > max_x, ones_bbox * max_x,
-                                                    perturb_bbox[:, :, 0])
-                perturb_bbox[:, :, 1] = torch.where(perturb_bbox[:, :, 1] > max_y, ones_bbox * max_y,
-                                                    perturb_bbox[:, :, 1])
-                perturb_bbox[:, :, 2] = torch.where(perturb_bbox[:, :, 2] > max_x, ones_bbox * max_x,
-                                                    perturb_bbox[:, :, 2])
-                perturb_bbox[:, :, 3] = torch.where(perturb_bbox[:, :, 3] > max_y, ones_bbox * max_y,
-                                                    perturb_bbox[:, :, 3])
-                left_upper_points = perturb_bbox[:, :, :2]
-                right_bottom_points = perturb_bbox[:, :, 2:]
-                left_upper_bbox = torch.cat((left_upper_points, left_upper_points), dim=2)
-                right_bottom_bbox = torch.cat((right_bottom_points, right_bottom_points), dim=2)
-                perturb_bbox = torch.where(left_upper_bbox > right_bottom_bbox, left_upper_bbox, perturb_bbox)
-                assert torch.all(perturb_bbox[:, :, 2:] >= perturb_bbox[:, :, :2])
-                assert torch.all(perturb_bbox >= 0)
+                perturb_bbox = get_perturb_bbox(amplify_bbox_prob, batch, left_bbox_prob, mask_bbox_prob,
+                                                narrow_bbox_prob, right_bbox_prob)
                 if amplify_bbox_prob > 0:
                     inputs["bbox"] = perturb_bbox.to(args.device)
                 else:
@@ -165,7 +123,7 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
         if label_id != pad_token_label_id:
             flatten_label_list.append(label_map[label_id])
             flatten_pred_list.append(label_map[pred_id])
-    all_texts = eval_dataset.all_text
+
     for i in range(out_label_ids.shape[0]):
         tokens = []
         for j in range(out_label_ids.shape[1]):
@@ -183,6 +141,7 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
     num_gt = 0
     results = {}
     if args.model_type == 'layoutlm':
+        all_texts = eval_dataset.all_text
         if args.eval_strict:
             print("****Strict eval model, which will compare entity****")
             for file, text, pred_one_doc, probs in zip(files, all_texts, preds_list, probs):
@@ -219,10 +178,57 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
     return results, preds_classes
 
 
-def do_eval(args, tokenizer_class, model_class, labels, pad_token_label_id):
-    tokenizer = tokenizer_class.from_pretrained(
-        args.output_dir, do_lower_case=args.do_lower_case
-    )
+def get_perturb_bbox(amplify_bbox_prob, batch, left_bbox_prob, mask_bbox_prob, narrow_bbox_prob, right_bbox_prob):
+    perturb_bbox = torch.clone(batch[4])
+    max_x = max(perturb_bbox[:, :, 0].max(), perturb_bbox[:, :, 2].max())
+    max_y = max(perturb_bbox[:, :, 1].max(), perturb_bbox[:, :, 3].max())
+    zero_bbox = torch.zeros_like(perturb_bbox)
+    B, L, D = perturb_bbox.shape
+    left_bbox = torch.cat((perturb_bbox[:, :-1, :], torch.zeros((B, 1, D), dtype=torch.int64)), dim=1)
+    right_bbox = torch.cat((perturb_bbox[:, 1:, :], torch.zeros((B, 1, D), dtype=torch.int64)), dim=1)
+    scale_bbox = torch.randint(0, 10, (B, L, 2))
+    narrow_bbox = torch.cat((scale_bbox, -scale_bbox), dim=2)
+    amplify_bbox = torch.cat((-scale_bbox, scale_bbox), dim=2)
+    prob_mat = torch.rand((B, L)).unsqueeze(dim=2)
+    prob_stack = prob_mat.repeat(1, 1, D)
+    # Mask perturb_bbox
+    perturb_bbox = torch.where(prob_stack < mask_bbox_prob, zero_bbox, perturb_bbox)
+    # Replace by left perturb_bbox
+    left_prob_mat = torch.where(prob_stack > left_bbox_prob, torch.zeros_like(prob_stack), prob_stack)
+    perturb_bbox = torch.where(mask_bbox_prob <= left_prob_mat, left_bbox, perturb_bbox)
+    # Replace by right perturb_bbox
+    right_prob_mat = torch.where(prob_stack > right_bbox_prob, torch.zeros_like(prob_stack), prob_stack)
+    perturb_bbox = torch.where(left_bbox_prob <= right_prob_mat, right_bbox, perturb_bbox)
+    # Narrow perturb_bbox
+    narrow_prob_mat = torch.where(prob_stack > narrow_bbox_prob, torch.zeros_like(prob_stack),
+                                  prob_stack)
+    perturb_bbox = torch.where(right_bbox_prob <= narrow_prob_mat, narrow_bbox, perturb_bbox)
+    # Amplify perturb_bbox
+    amplify_prob_mat = torch.where(prob_stack > amplify_bbox_prob, torch.zeros_like(prob_stack),
+                                   prob_stack)
+    perturb_bbox = torch.where(narrow_bbox_prob <= amplify_prob_mat, amplify_bbox, perturb_bbox)
+    perturb_bbox = torch.where(perturb_bbox < 0, zero_bbox, perturb_bbox)
+    ones_bbox = torch.ones((B, L), dtype=torch.int64)
+    # Replace items which are greater than max
+    perturb_bbox[:, :, 0] = torch.where(perturb_bbox[:, :, 0] > max_x, ones_bbox * max_x,
+                                        perturb_bbox[:, :, 0])
+    perturb_bbox[:, :, 1] = torch.where(perturb_bbox[:, :, 1] > max_y, ones_bbox * max_y,
+                                        perturb_bbox[:, :, 1])
+    perturb_bbox[:, :, 2] = torch.where(perturb_bbox[:, :, 2] > max_x, ones_bbox * max_x,
+                                        perturb_bbox[:, :, 2])
+    perturb_bbox[:, :, 3] = torch.where(perturb_bbox[:, :, 3] > max_y, ones_bbox * max_y,
+                                        perturb_bbox[:, :, 3])
+    left_upper_points = perturb_bbox[:, :, :2]
+    right_bottom_points = perturb_bbox[:, :, 2:]
+    left_upper_bbox = torch.cat((left_upper_points, left_upper_points), dim=2)
+    right_bottom_bbox = torch.cat((right_bottom_points, right_bottom_points), dim=2)
+    perturb_bbox = torch.where(left_upper_bbox > right_bottom_bbox, left_upper_bbox, perturb_bbox)
+    assert torch.all(perturb_bbox[:, :, 2:] >= perturb_bbox[:, :, :2])
+    assert torch.all(perturb_bbox >= 0)
+    return perturb_bbox
+
+
+def do_eval(args, tokenizer, model, labels, pad_token_label_id):
     results = {}
     checkpoints = [args.output_dir]
     if args.eval_all_checkpoints:
@@ -236,7 +242,6 @@ def do_eval(args, tokenizer_class, model_class, labels, pad_token_label_id):
     logger.info("Evaluate the following checkpoints: %s", checkpoints)
     for checkpoint in checkpoints:
         global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
-        model = model_class.from_pretrained(checkpoint)
         model.to(args.device)
         result, _ = evaluate(
             args,

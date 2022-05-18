@@ -80,7 +80,7 @@ class TrainingArgs:
         metadata={"help": "Whether to run eval on the test set."}
     )
     evaluate_during_training: bool = field(
-        default=True,
+        default=False,
         metadata={"help": "Whether to run evaluation during training at each logging step."}
     )
     do_lower_case: bool = field(
