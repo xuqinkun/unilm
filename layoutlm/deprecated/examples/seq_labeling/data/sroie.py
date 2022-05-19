@@ -26,6 +26,7 @@ https://arxiv.org/abs/2103.10213
 
 class SroieConfig(datasets.BuilderConfig):
     """BuilderConfig for SROIE"""
+
     def __init__(self, **kwargs):
         """BuilderConfig for SROIE.
         Args:
@@ -41,7 +42,8 @@ class Sroie(datasets.GeneratorBasedBuilder):
 
     def __init__(self, **kwargs):
         super(Sroie, self).__init__(cache_dir=kwargs['cache_dir'], name=kwargs['name'])
-        self.data_dir = Path(kwargs['data_dir'])/'sroie.zip'
+        self.data_dir = Path(kwargs['data_dir']) / 'sroie.zip'
+        self.tokenizer = kwargs['tokenizer']
 
     def _info(self):
         return datasets.DatasetInfo(
@@ -51,13 +53,14 @@ class Sroie(datasets.GeneratorBasedBuilder):
                     "id": datasets.Value("string"),
                     "words": datasets.Sequence(datasets.Value("string")),
                     "bboxes": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
+                    "input_ids": datasets.Sequence(datasets.Value("int64")),
                     "ner_tags": datasets.Sequence(
                         datasets.features.ClassLabel(
-                            names=["O","B-COMPANY", "I-COMPANY", "B-DATE", "I-DATE", "B-ADDRESS", "I-ADDRESS", "B-TOTAL", "I-TOTAL"]
+                            names=["O", "B-COMPANY", "I-COMPANY", "B-DATE", "I-DATE", "B-ADDRESS", "I-ADDRESS",
+                                   "B-TOTAL", "I-TOTAL"]
                         )
                     ),
-                    #"image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
-                    "image_path": datasets.Value("string"),
+                    "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
                 }
             ),
             supervised_keys=None,
@@ -70,13 +73,13 @@ class Sroie(datasets.GeneratorBasedBuilder):
         """Uses local files located with data_dir"""
         downloaded_file = dl_manager.download_and_extract(self.data_dir.as_posix())
         # move files from the second URL together with files from the first one.
-        dest = Path(downloaded_file)/"sroie"
+        dest = Path(downloaded_file) / "sroie"
         return [
             datasets.SplitGenerator(
-                name=datasets.Split.TRAIN, gen_kwargs={"filepath": dest/"train"}
-            ),            
+                name=datasets.Split.TRAIN, gen_kwargs={"filepath": dest / "train"}
+            ),
             datasets.SplitGenerator(
-                name=datasets.Split.TEST, gen_kwargs={"filepath": dest/"test"}
+                name=datasets.Split.TEST, gen_kwargs={"filepath": dest / "test"}
             ),
         ]
 
@@ -84,16 +87,29 @@ class Sroie(datasets.GeneratorBasedBuilder):
         logger.info("⏳ Generating examples from = %s", filepath)
         ann_dir = os.path.join(filepath, "tagged")
         img_dir = os.path.join(filepath, "images")
-        for guid, fname in enumerate(sorted(os.listdir(img_dir))):
+        for doc_id, fname in enumerate(sorted(os.listdir(img_dir))):
             name, ext = os.path.splitext(fname)
             file_path = os.path.join(ann_dir, name + ".json")
             with open(file_path, "r", encoding="utf8") as f:
                 data = json.load(f)
             image_path = os.path.join(img_dir, fname)
-            
             image, size = load_image(image_path)
-            
             boxes = [normalize_bbox(simplify_bbox(box), size) for box in data["bbox"]]
-
-
-            yield guid, {"id": str(guid), "words": data["words"], "bboxes": boxes, "ner_tags": data["labels"], "image_path": image_path}
+            words, labels = data["words"], data["labels"]
+            for i, (word, label, box) in enumerate(zip(words, labels, boxes)):
+                ids = self.tokenizer(word, add_special_tokens=False,)['input_ids']
+                boxes = [box] * len(ids)
+                if label.startswith('B'):
+                    _, label_name = label.split('-')
+                    labels = [f'I-{label_name}'] * len(ids)
+                    labels[0] = f'B-{label_name}'
+                else:
+                    labels = [label] * len(ids)
+                guid = f'{doc_id}-{i}'
+                yield guid, {"id": str(guid),
+                             "words": data["words"],
+                             "input_ids": ids,
+                             "bboxes": boxes,
+                             "ner_tags": labels,
+                             "image": image,
+                             }
