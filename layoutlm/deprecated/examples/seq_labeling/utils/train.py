@@ -156,20 +156,20 @@ def do_train(  # noqa C901
         )
         for step, batch in enumerate(epoch_iterator):
             model.train()
-            input_ids = batch[0]
+            input_ids = batch["input_ids"]
 
             inputs = {
                 "input_ids": input_ids.to(args.device),
-                "attention_mask": batch[1].to(args.device),
-                "labels": batch[3].to(args.device),
+                "attention_mask": batch["input_mask"].to(args.device),
+                "labels": batch["label_ids"].to(args.device),
             }
             if args.model_type.startswith('layoutlm'):
-                inputs["bbox"] = batch[4].to(args.device)
+                inputs["bbox"] = batch["bbox"].to(args.device)
             inputs["token_type_ids"] = (
-                batch[2].to(args.device) if args.model_type in ["bert", "layoutlm"] else None
+                batch["segment_ids"].to(args.device) if args.model_type in ["bert", "layoutlm"] else None
             )  # RoBERTa don"t use segment_ids
             if args.model_type == 'layoutlm_itm':
-                inputs['image'] = batch[5].to(args.device)
+                inputs['image'] = batch['image'].to(args.device)
             outputs = model(**inputs)
             # model outputs are always tuple in pytorch-transformers (see doc)
             loss = outputs[0]

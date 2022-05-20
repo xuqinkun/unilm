@@ -6,6 +6,7 @@ import torch
 import random
 from torch.utils.data import Dataset
 from ast import literal_eval
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from pathlib import Path
 from layoutlmft.data.utils import load_image, normalize_bbox, simplify_bbox
@@ -85,14 +86,14 @@ class ITMDataset(Dataset):
         return len(self.features)
 
     def __getitem__(self, index):
-        return (
-            self.all_input_ids[index],
-            self.all_input_mask[index],
-            self.all_segment_ids[index],
-            self.all_label_ids[index],
-            self.all_bboxes[index],
-            self.all_images[index],
-        )
+        return {
+            "input_ids": self.all_input_ids[index],
+            "input_mask": self.all_input_mask[index],
+            "segment_ids": self.all_segment_ids[index],
+            "label_ids": self.all_label_ids[index],
+            "bbox": self.all_bboxes[index],
+            "image": self.all_images[index],
+        }
 
 
 def read_examples_from_file(data_dir: Path, mode, vocab: dict):

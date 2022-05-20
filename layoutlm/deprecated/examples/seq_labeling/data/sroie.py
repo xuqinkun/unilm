@@ -41,7 +41,12 @@ class Sroie(datasets.GeneratorBasedBuilder):
     ]
 
     def __init__(self, **kwargs):
-        super(Sroie, self).__init__(cache_dir=kwargs['cache_dir'], name=kwargs['name'])
+        if 'version' in kwargs:
+            super(Sroie, self).__init__(cache_dir=kwargs['cache_dir'],
+                                        name=kwargs['name'],
+                                        version=kwargs['version'])
+        else:
+            super(Sroie, self).__init__(cache_dir=kwargs['cache_dir'], name=kwargs['name'])
         self.data_dir = Path(kwargs['data_dir']) / 'sroie.zip'
         self.tokenizer = kwargs['tokenizer']
 

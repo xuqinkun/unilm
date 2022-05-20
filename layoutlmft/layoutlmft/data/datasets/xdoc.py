@@ -111,7 +111,7 @@ class XDoc(datasets.GeneratorBasedBuilder):
                 eval_file = walk_dir(self.data_dir / "eval")
 
         data_dir = dl_manager.download_and_extract({
-            "train": train_file, "eval": eval_file}
+            "train": train_file.as_posix(), "eval": eval_file.as_posix()}
         )
         if self.output_dir:
             train_sample = self.output_dir / "train.csv"
