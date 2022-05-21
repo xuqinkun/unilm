@@ -124,7 +124,7 @@ class SROIE_For_ITA(datasets.GeneratorBasedBuilder):
             lines = ocr_data.split("\n")
             for line_id, line in enumerate(lines):
                 tokens = line.split(",")
-                bbox = simplify_bbox(literal_eval(",".join(tokens[:8])))
+                bbox = normalize_bbox(literal_eval(",".join(tokens[:8])), size)
                 text = ",".join(tokens[8:]).lower()
                 broken_texts = list(get_local_neighbors_char_level(text, 5))
                 broken_texts.append(text)

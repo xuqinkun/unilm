@@ -76,7 +76,7 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
 
 class ResnetForImageTextMatching(nn.Module):
 
-    def __init__(self, config: LayoutLMv2Config, device):
+    def __init__(self, config: LayoutLMv2Config, max_seq_length):
         super(ResnetForImageTextMatching, self).__init__()
         self.config = config
 
@@ -91,7 +91,7 @@ class ResnetForImageTextMatching(nn.Module):
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
         self.pixel_mean = torch.reshape(torch.tensor([103.5300, 116.2800, 123.6750]), (3, 1, 1))
         self.pixel_std = torch.tensor([[[57.3750]], [[57.1200]], [[58.3950]]])
-        self.avg_pool = nn.AdaptiveAvgPool2d((None, config.max_length))
+        self.avg_pool = nn.AdaptiveAvgPool2d((None, max_seq_length))
 
     def _cal_spatial_position_embeddings(self, bbox):
         try:
@@ -193,9 +193,9 @@ class ResnetForImageTextMatching(nn.Module):
         )
         return spatial_position_embeddings
 
-    def forward(self, input_ids, image, bboxes, position_ids=None,
+    def forward(self, input_ids, image, bbox, position_ids=None,
                 attention_mask=None,
-                ner_tags=None,
+                label=None,
                 token_type_ids=None,
                 ):
         device = input_ids.device
@@ -212,8 +212,8 @@ class ResnetForImageTextMatching(nn.Module):
         self.pixel_std = self.pixel_std.to(image.device)
         self.pixel_mean = self.pixel_mean.to(image.device)
         images = (image - self.pixel_mean) / self.pixel_std
-        text_layout_emb = self.lmv2._calc_text_embeddings(input_ids, bboxes, position_ids, token_type_ids)
-        visual_box = self._calc_visual_bbox(self.config.image_feature_pool_shape, bboxes, device, final_shape)
+        text_layout_emb = self.lmv2._calc_text_embeddings(input_ids, bbox, position_ids, token_type_ids)
+        visual_box = self._calc_visual_bbox(self.config.image_feature_pool_shape, bbox, device, final_shape)
         img_emb = self._cal_image_embedding(images)
         visual_position_ids = torch.arange(0, visual_shape[1], dtype=torch.long, device=device).repeat(
             input_shape[0], 1
@@ -225,15 +225,15 @@ class ResnetForImageTextMatching(nn.Module):
         final_emb = text_layout_emb + visual_emb
         logits = self.classifier(final_emb)
         loss = None
-        if ner_tags is not None:
+        if label is not None:
             loss_fct = nn.CrossEntropyLoss()
 
             if attention_mask is not None:
                 active_loss = attention_mask.view(-1) == 1
                 active_logits = logits.view(-1, self.config.num_labels)[active_loss]
-                active_labels = ner_tags.view(-1)[active_loss]
+                active_labels = label.view(-1)[active_loss]
                 loss = loss_fct(active_logits, active_labels)
             else:
-                loss = loss_fct(logits.view(-1, self.config.num_labels), ner_tags.view(-1))
+                loss = loss_fct(logits.view(-1, self.config.num_labels), label.view(-1))
 
         return loss, logits

@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-import os
-import torch
 import logging
-import numpy as np
+import os
 from pathlib import Path
 
+import numpy as np
+import torch
 from datasets import load_dataset
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
 from layoutlmft.models.model_args import ModelArguments
@@ -14,10 +14,9 @@ from transformers.models.layoutlmv2.configuration_layoutlmv2 import LayoutLMv2Co
 from transformers.trainer import Trainer
 from transformers.trainer_utils import get_last_checkpoint
 
-import layoutlm.deprecated.examples.seq_labeling.data.sroie as sroie
+import layoutlm.deprecated.examples.seq_labeling.data.sroie_for_ita as sroie
 from layoutlm.deprecated.examples.seq_labeling.data.data_collator import DataCollatorForClassifier
 from layoutlm.deprecated.examples.seq_labeling.models.modeling_ITA import ResnetForImageTextMatching
-from seqeval.metrics import f1_score, recall_score, precision_score
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -34,15 +33,16 @@ if __name__ == '__main__':
         device = "cuda:0"
     else:
         device = 'cpu'
-    model = ResnetForImageTextMatching(config=config, device=device)
+    model = ResnetForImageTextMatching(config=config, max_seq_length=data_args.max_seq_length)
     # version='2.0.0'
     version = None
     tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base", use_fast=True)
     dataset = load_dataset(
         path=Path(sroie.__file__).as_posix(),
-        data_dir='/home/std2020/xuqinkun/data/sroie',
+        data_dir=data_args.data_dir,
         tokenizer=tokenizer,
         version=version,
+        overwrite_cache=False,
     )
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir) and not training_args.overwrite_output_dir:
@@ -59,7 +59,7 @@ if __name__ == '__main__':
             )
     id2label = {0: "covered", 1: "uncovered"}
     train_dataset = dataset['train']
-    test_dataset = dataset['test']
+    test_dataset = dataset['validation']
     label_to_id = {v: k for k, v in id2label.items()}
 
     data_collator = DataCollatorForClassifier(

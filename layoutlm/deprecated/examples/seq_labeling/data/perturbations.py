@@ -8,7 +8,7 @@ import re
 from collections import Counter
 from random import sample
 import numpy as np
-from spacy_tokenizer import spacy_tokenize_gec
+from layoutlm.deprecated.examples.seq_labeling.data.spacy_tokenizer import spacy_tokenize_gec
 
 from layoutlm.deprecated.examples.seq_labeling.data.PIE.word_level_perturb import WordLevelPerturber_all, \
     WordLevelPerturber_refine
@@ -74,11 +74,14 @@ word_attack = RandomPerturbationAttack()
 def _tokenize(sent):
     toks = []
     word_idxs = []
+    idx = None
     for idx, match in enumerate(re.finditer(r'([a-zA-Z]+)|([0-9]+)|.', sent)):
         tok = match.group(0)
         toks.append(tok)
         if len(tok) > 2 and tok.isalpha() and (tok[0].islower()):
             word_idxs.append(idx)
+    if idx and len(word_idxs) == 0:
+        word_idxs.append(idx)
     return toks, word_idxs
 
 def _detokenize(toks):
@@ -144,6 +147,6 @@ def get_local_neighbors_word_level(sent_toked, max_n_samples=500, mode='refine')
 
 if __name__ == '__main__':
     sent_toked = spacy_tokenize_gec("I'm a student")
-    ret = get_local_neighbors_char_level("I'm a student", 5)
+    ret = get_local_neighbors_char_level('TAN WOON YANN'.lower(), 5)
     print(ret)
     # print(get_local_neighbors_char_level("aaa", 10))

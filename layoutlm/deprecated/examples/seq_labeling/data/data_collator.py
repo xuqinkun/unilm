@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
+import random
 from dataclasses import dataclass
 from typing import Optional, Union, Mapping
 
 import torch
-import random
-from detectron2.structures import ImageList
 from transformers import PreTrainedTokenizerBase
 from transformers.file_utils import PaddingStrategy
 
@@ -20,18 +19,18 @@ class DataCollatorForClassifier:
     # device: str = None
 
     def __call__(self, features):
-        label_name = "label" if "label" in features[0].keys() else "ner_tags"
+        label_name = "label" if "label" in features[0].keys() else "labels"
 
-        perturb(self.tokenizer.vocab, self.tokenizer.all_special_ids, features, self.label_to_id)
+        # perturb(self.tokenizer.vocab, self.tokenizer.all_special_ids, features, self.label_to_id)
         labels = [feature[label_name] for feature in features] if label_name in features[0].keys() else None
         image = None
+        box_name = "bbox"
         has_image_input = "image" in features[0]
-        has_bbox_input = "bboxes" in features[0]
+        has_bbox_input = box_name in features[0]
         if has_image_input:
             image = torch.tensor([feature["image"] for feature in features], dtype=torch.float)
             for feature in features:
                 del feature["image"]
-                del feature['ner_tags']
         batch = self.tokenizer.pad(
             features,
             padding=self.padding,
@@ -48,18 +47,17 @@ class DataCollatorForClassifier:
         padding_side = self.tokenizer.padding_side
 
         if padding_side == "right":
-            batch['ner_tags'] = [label + [self.label_pad_token_id] * (sequence_length - len(label)) for label in labels]
+            batch[label_name] = [[label] + [self.label_pad_token_id] * (sequence_length - 1) for label in labels]
             if has_bbox_input:
-                batch["bboxes"] = [bbox + [[0, 0, 0, 0]] * (sequence_length - len(bbox)) for bbox in batch["bboxes"]]
+                batch[box_name] = [[bbox] + [[0, 0, 0, 0]] * (sequence_length - 1) for bbox in batch[box_name]]
         else:
             batch[label_name] = [[self.label_pad_token_id] * (sequence_length - len(label)) + label for label in labels]
             if has_bbox_input:
-                batch["bboxes"] = [[[0, 0, 0, 0]] * (sequence_length - len(bbox)) + bbox for bbox in batch["bboxes"]]
+                batch[box_name] = [[[0, 0, 0, 0]] * (sequence_length - len(bbox)) + bbox for bbox in batch[box_name]]
 
         batch = {k: torch.tensor(v, dtype=torch.int64) if isinstance(v[0], list) else v for k, v in batch.items()}
         if has_image_input:
             batch["image"] = image
-        # batch = {k: v.to(self.device) for k, v in batch.items()}
         return batch
 
 
