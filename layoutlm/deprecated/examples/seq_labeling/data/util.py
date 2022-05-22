@@ -5,10 +5,16 @@ import shutil
 import random
 import logging
 from pathlib import Path
+from layoutlmft.data.utils import normalize_bbox, read_ner_label, merge_bbox, simplify_bbox
+
+COVERED = 'covered'
+UNCOVERED = 'uncovered'
+
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
                     level=logging.INFO)
 logger = logging.getLogger(__file__)
+
 
 def split_files(file_index):
     train_files = []
@@ -108,3 +114,59 @@ def read_json_file(path):
         return None
     with src.open("r", encoding='utf-8') as f:
         return json.load(f)
+
+
+def get_sent_perturbation_word_level(tokenizer, line, n_samples, img_size):
+    tokenized_inputs = tokenizer(
+        line["text"],
+        add_special_tokens=False,
+        return_offsets_mapping=True,
+        return_attention_mask=False,
+    )
+    input_ids = tokenized_inputs["input_ids"]
+    offset_mapping = tokenized_inputs["offset_mapping"]
+    if 'char_polygons' not in line:
+        return None
+    char_polygons = line['char_polygons']
+    bbox = []
+    for i, (start, end) in enumerate(offset_mapping):
+        box = merge_bbox([simplify_bbox(b) for b in char_polygons[start: end]])
+        bbox.append(normalize_bbox(box, size=img_size))
+    dummy_inputs = [input_ids]
+    dummy_bbox = [bbox]
+    dummy_labels = [COVERED]
+
+    all_special_ids = tokenizer.all_special_ids
+    vocab_size = tokenizer.vocab_size
+    for i in range(n_samples):
+        tmp_tokens = []
+        tmp_box = []
+        label = COVERED
+        for token, box in zip(input_ids, bbox):
+            tmp_box.append(box)
+            if token in all_special_ids:
+                # Skip special ids
+                tmp_tokens.append(token)
+                continue
+            prob = random.random()
+            if prob < 0.7:
+                # Replace current token by a random token in vocab
+                rand_token = random.randint(0, vocab_size)
+                while rand_token == token or rand_token in all_special_ids:
+                    rand_token = random.randint(0, vocab_size)
+                tmp_tokens.append(rand_token)
+                label = UNCOVERED
+            elif prob < 0.8:
+                # Drop token
+                tmp_box.pop(-1)
+            elif prob < 0.9:
+                # Insert a token
+                rand_token = random.randint(0, vocab_size)
+                tmp_box.append(box)
+                tmp_tokens.append(rand_token)
+            else:
+                tmp_tokens.append(token)
+        dummy_labels.append(label)
+        dummy_bbox.append(tmp_box)
+        dummy_inputs.append(tmp_tokens)
+    return dummy_inputs, dummy_bbox, dummy_labels

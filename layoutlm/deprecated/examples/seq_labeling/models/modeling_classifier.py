@@ -14,7 +14,7 @@ from transformers.models.layoutlmv2.configuration_layoutlmv2 import LayoutLMv2Co
 from transformers.trainer import Trainer
 from transformers.trainer_utils import get_last_checkpoint
 
-import layoutlm.deprecated.examples.seq_labeling.data.sroie_for_ita as sroie
+import layoutlm.deprecated.examples.seq_labeling.data.xdoc_perturbation as xdoc_perturbation
 from layoutlm.deprecated.examples.seq_labeling.data.data_collator import DataCollatorForClassifier
 from layoutlm.deprecated.examples.seq_labeling.models.modeling_ITA import ResnetForImageTextMatching
 
@@ -38,11 +38,20 @@ if __name__ == '__main__':
     version = None
     tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base", use_fast=True)
     dataset = load_dataset(
-        path=Path(sroie.__file__).as_posix(),
+        path=Path(xdoc_perturbation.__file__).as_posix(),
         data_dir=data_args.data_dir,
         tokenizer=tokenizer,
-        version=version,
-        overwrite_cache=False,
+        name=f"x{data_args.doc_type}.{data_args.lang}",
+        additional_langs=data_args.additional_langs,
+        keep_in_memory=True,
+        doc_type=data_args.doc_type,
+        cache_dir=data_args.data_cache_dir,
+        pred_only=data_args.pred_only,
+        is_tar_file=data_args.is_tar_file,
+        ocr_path=data_args.ocr_path,
+        force_ocr=data_args.force_ocr,
+        version=data_args.version,
+        output_dir=training_args.output_dir,
     )
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir) and not training_args.overwrite_output_dir:
