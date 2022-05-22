@@ -1,10 +1,11 @@
 # coding=utf-8
 from ast import literal_eval
 import os
-import json
+from nltk import word_tokenize
 import datasets
 from pathlib import Path
-from layoutlm.deprecated.examples.seq_labeling.data.perturbations import get_local_neighbors_word_level, get_local_neighbors_char_level
+from layoutlm.deprecated.examples.seq_labeling.data.perturbations import get_local_neighbors_word_level, \
+    get_local_neighbors_char_level
 from layoutlm.deprecated.examples.seq_labeling.data.util import *
 from layoutlmft.data.utils import load_image, simplify_bbox, normalize_bbox
 
@@ -68,8 +69,8 @@ class SROIE_For_ITA(datasets.GeneratorBasedBuilder):
                     "bbox": datasets.Sequence(datasets.Value("int64")),
                     "input_ids": datasets.Sequence(datasets.Value("int64")),
                     "label": datasets.features.ClassLabel(
-                            names=["covered", "uncovered"]
-                        ),
+                        names=["covered", "uncovered"]
+                    ),
                     "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
                 }
             ),
@@ -144,3 +145,56 @@ class SROIE_For_ITA(datasets.GeneratorBasedBuilder):
                         "label": label,
                     }
                     yield guid, feature
+
+
+def get_word_label(root_dir: Path, file_index: dict, split):
+    parent_dir = root_dir / split
+    img_dir = parent_dir / "images"
+    tag_dir = parent_dir / "tagged"
+    img_files = sorted(img_dir.glob("*.jpg"))
+    tag_files = sorted(tag_dir.glob("*.json"))
+    remove_keys = []
+    for img, tag in zip(img_files, tag_files):
+        key = tag.stem
+        assert img.stem == key
+        if key not in file_index:
+            remove_keys.append(key)
+            continue
+        item = file_index[key]
+        if 'ocr' not in item:
+            remove_keys.append(key)
+            continue
+        ocr_data = Path(item['ocr']).read_text()
+        words_tag = read_json_file(tag)
+        if ocr_data[-1] == '\n':
+            ocr_data = ocr_data[:-1]
+        lines = ocr_data.split("\n")
+        words = words_tag['words']
+        start = 0
+        line_spans = []
+        for line in lines:
+            tokens = line.split(",")
+            line_text = ",".join(tokens[8:])
+            slices = word_tokenize(line_text)
+            offset = 0
+            # 文本可能出现部分字符不一致的情况，如果左右两个token都出现在文本行当中，
+            # 那么中间的token也应该出现在当前行中
+            while (start + offset < len(words) and offset < len(slices) and words[start + offset].lower() == slices[offset].lower()) \
+                    or (start + offset + 1 < len(words) and offset + 1 < len(slices) and
+                        words[start + offset + 1].lower() == slices[offset + 1].lower()):
+                offset += 1
+            line_spans.append((start, start + offset))
+            start += offset
+        for span, line in zip(line_spans, lines):
+            words_line = " ".join(words[span[0]: span[1]])
+            if words_line != line:
+                print((words_line, "\t", line))
+    print(len(remove_keys))
+
+
+if __name__ == '__main__':
+    root_dir = Path("/home/std2020/xuqinkun/data/sroie")
+    sroie_words_dir = root_dir / 'sroie_words'
+    sroie_raw_dir = root_dir / 'sroie_raw'
+    file_index = get_file_index(sroie_raw_dir, 'processed')
+    get_word_label(sroie_words_dir, file_index, 'train')

@@ -102,6 +102,9 @@ def load_cache(_dir: Path):
     return file_index
 
 
-def perturb(text: str):
-
-    return []
+def read_json_file(path):
+    src = Path(path)
+    if not src.exists():
+        return None
+    with src.open("r", encoding='utf-8') as f:
+        return json.load(f)
