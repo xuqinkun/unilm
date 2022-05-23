@@ -17,7 +17,7 @@ class DataCollatorForClassifier:
     label_pad_token_id: int = -100
     label_to_id: Mapping = None
 
-    # device: str = None
+    device: str = None
 
     def __call__(self, features):
         label_name = "label" if "label" in features[0].keys() else "labels"
@@ -68,6 +68,9 @@ class DataCollatorForClassifier:
         if has_image_input:
             batch["image"] = image
         batch[label_name] = torch.tensor(labels).view(-1, 1)
+        if self.device:
+            for k, v in batch.items():
+                v.to(self.device)
         return batch
 
 

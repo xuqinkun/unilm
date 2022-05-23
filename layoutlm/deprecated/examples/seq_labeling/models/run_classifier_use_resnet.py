@@ -6,10 +6,8 @@ from pathlib import Path
 import numpy as np
 import torch
 from datasets import load_dataset
-from random import shuffle
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
 from layoutlmft.models.model_args import ModelArguments
-from torch.utils.data import SequentialSampler
 from transformers import AutoTokenizer, HfArgumentParser, TrainingArguments
 from transformers.models.layoutlmv2.configuration_layoutlmv2 import LayoutLMv2Config
 from transformers.trainer import Trainer
@@ -30,12 +28,7 @@ if __name__ == '__main__':
     config = LayoutLMv2Config.from_pretrained(model_args.model_name_or_path,
                                               name_or_path=model_args.model_name_or_path,
                                               num_labels=2)
-    if torch.cuda.is_available():
-        device = "cuda:0"
-    else:
-        device = 'cpu'
     model = ResnetForImageTextMatching(config=config, max_seq_length=data_args.max_seq_length)
-    # version='2.0.0'
     version = None
     tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base", use_fast=True)
     dataset = load_dataset(
