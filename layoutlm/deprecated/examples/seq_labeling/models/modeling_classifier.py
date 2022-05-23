@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from datasets import load_dataset
+from random import shuffle
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
 from layoutlmft.models.model_args import ModelArguments
 from torch.utils.data import SequentialSampler
@@ -66,11 +67,21 @@ if __name__ == '__main__':
                 f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
                 "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
             )
-    id2label = {0: "covered", 1: "uncovered"}
-    train_dataset = dataset['train']
-    test_dataset = dataset['validation']
-    label_to_id = {v: k for k, v in id2label.items()}
 
+    train_dataset = dataset['train']
+    eval_dataset = dataset['validation']
+
+    max_train_samples = data_args.max_train_samples if data_args.max_train_samples else len(train_dataset)
+    max_eval_samples = data_args.max_val_samples if data_args.max_val_samples else len(eval_dataset)
+    train_indices = np.arange(len(train_dataset))
+    eval_indices = np.arange(len(eval_dataset))
+    np.random.shuffle(train_indices)
+    np.random.shuffle(eval_indices)
+    train_dataset = train_dataset.select(train_indices[:max_train_samples])
+    eval_dataset = eval_dataset.select(eval_indices[:max_eval_samples])
+    features = train_dataset.features['label'].names
+    id2label = {i: l for i, l in enumerate(features)}
+    label_to_id = {v: k for k, v in id2label.items()}
     data_collator = DataCollatorForClassifier(
         tokenizer,
         # pad_to_multiple_of=batch_size,
@@ -79,31 +90,21 @@ if __name__ == '__main__':
         label_to_id=label_to_id,
         # device=device,
     )
-    sampler = SequentialSampler(train_dataset)
-    features = train_dataset.features
+
 
     def compute_metrics(p):
         logits, labels = p
-        predictions = np.argmax(logits, axis=2).tolist()
-        # Remove ignored index (special tokens)
-        true_predictions = [
-            [id2label[p] for (p, l) in zip(prediction, label) if l != -100]
-            for prediction, label in zip(predictions, labels)
-        ]
-        y_pred = [p for preds in true_predictions for p in preds]
-        true_labels = [
-            [id2label[l] for (p, l) in zip(prediction, label) if l != -100]
-            for prediction, label in zip(predictions, labels)
-        ]
-        y_true = [l for labels in true_labels for l in labels]
+        y_pred = np.argmax(logits, axis=-1).tolist()
+        y_true = np.squeeze(labels, axis=-1)
         num_correct = sum([1 if p == l else 0 for p, l in zip(y_pred, y_true)])
-        return {"accuracy": num_correct/len(y_true)}
+        return {"accuracy": num_correct / len(y_true)}
+
 
     trainer = Trainer(model,
                       args=training_args,
                       data_collator=data_collator,
                       train_dataset=train_dataset,
-                      eval_dataset=test_dataset,
+                      eval_dataset=eval_dataset,
                       tokenizer=tokenizer,
                       compute_metrics=compute_metrics,
                       )
@@ -111,8 +112,7 @@ if __name__ == '__main__':
         trainer.train(resume_from_checkpoint=last_checkpoint)
     if training_args.do_eval:
         metrics = trainer.evaluate()
-        eval_dataloader = trainer.get_eval_dataloader(eval_dataset=test_dataset)
         for k, v in metrics.items():
             print(f"{k}:{v}")
     if training_args.do_predict:
-        trainer.predict(test_dataset=test_dataset)
+        trainer.predict(test_dataset=eval_dataset)

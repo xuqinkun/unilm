@@ -16,6 +16,7 @@ class DataCollatorForClassifier:
     pad_to_multiple_of: Optional[int] = None
     label_pad_token_id: int = -100
     label_to_id: Mapping = None
+
     # device: str = None
 
     def __call__(self, features):
@@ -42,22 +43,31 @@ class DataCollatorForClassifier:
 
         if labels is None:
             return batch
-
+        batch['input_ids'] = [input_ids[:self.max_length] if len(input_ids) > self.max_length else input_ids for
+                              input_ids in
+                              batch['input_ids']]
+        batch[box_name] = [bbox[:self.max_length] if len(bbox) > self.max_length else bbox for bbox in
+                           batch[box_name]]
+        batch["attention_mask"] = [attention_mask[:self.max_length] if len(attention_mask) > self.max_length else
+                                   attention_mask for attention_mask in batch["attention_mask"]]
         sequence_length = torch.tensor(batch["input_ids"]).shape[1]
         padding_side = self.tokenizer.padding_side
 
         if padding_side == "right":
-            batch[label_name] = [[label] + [self.label_pad_token_id] * (sequence_length - 1) for label in labels]
+            # batch[label_name] = [[label] + [self.label_pad_token_id] * (sequence_length - 1) for label in labels]
             if has_bbox_input:
-                batch[box_name] = [[bbox] + [[0, 0, 0, 0]] * (sequence_length - 1) for bbox in batch[box_name]]
+                batch[box_name] = [bbox + [[0, 0, 0, 0]] * (sequence_length - len(bbox)) for bbox in batch[box_name]]
         else:
             batch[label_name] = [[self.label_pad_token_id] * (sequence_length - len(label)) + label for label in labels]
             if has_bbox_input:
                 batch[box_name] = [[[0, 0, 0, 0]] * (sequence_length - len(bbox)) + bbox for bbox in batch[box_name]]
-
-        batch = {k: torch.tensor(v, dtype=torch.int64) if isinstance(v[0], list) else v for k, v in batch.items()}
+        try:
+            batch = {k: torch.tensor(v, dtype=torch.int64) if isinstance(v[0], list) else v for k, v in batch.items()}
+        except Exception as e:
+            raise e
         if has_image_input:
             batch["image"] = image
+        batch[label_name] = torch.tensor(labels).view(-1, 1)
         return batch
 
 

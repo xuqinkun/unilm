@@ -18,7 +18,6 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
         self.layoutlmv2 = LayoutLMv2Model(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, self.num_labels)
-
         self.init_weights()
 
     def forward(
@@ -88,10 +87,12 @@ class ResnetForImageTextMatching(nn.Module):
 
         self.lmv2 = LayoutLMv2Model.from_pretrained(config.name_or_path)
         self.visual_proj = nn.Linear(self.visual_encoder.layer4[1].conv2.out_channels, config.hidden_size)
-        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
         self.pixel_mean = torch.reshape(torch.tensor([103.5300, 116.2800, 123.6750]), (3, 1, 1))
         self.pixel_std = torch.tensor([[[57.3750]], [[57.1200]], [[58.3950]]])
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.avg_pool = nn.AdaptiveAvgPool2d((None, max_seq_length))
+        self.decoder = nn.Linear(config.hidden_size, 1)
+        self.proj = nn.Linear(max_seq_length, config.num_labels)
 
     def _cal_spatial_position_embeddings(self, bbox):
         try:
@@ -223,17 +224,16 @@ class ResnetForImageTextMatching(nn.Module):
         visual_emb = self.avg_pool(visual_emb.transpose(1, 2)).transpose(1, 2)
 
         final_emb = text_layout_emb + visual_emb
-        logits = self.classifier(final_emb)
-        loss = None
+        pooled_output = self.dropout(final_emb)
+        logits = self.decoder(pooled_output).squeeze(-1)
+        if attention_mask is not None:
+            logits = logits * attention_mask
+
+        active_logits = self.proj(logits)
+        probs = active_logits.softmax(dim=1)
         if label is not None:
-            loss_fct = nn.CrossEntropyLoss()
-
-            if attention_mask is not None:
-                active_loss = attention_mask.view(-1) == 1
-                active_logits = logits.view(-1, self.config.num_labels)[active_loss]
-                active_labels = label.view(-1)[active_loss]
-                loss = loss_fct(active_logits, active_labels)
-            else:
-                loss = loss_fct(logits.view(-1, self.config.num_labels), label.view(-1))
-
-        return loss, logits
+            loss_fct = nn.CrossEntropyLoss(reduction="sum")
+            loss = loss_fct(probs.view(-1, self.config.num_labels), label.view(-1))
+            return loss, probs
+        else:
+            return probs
