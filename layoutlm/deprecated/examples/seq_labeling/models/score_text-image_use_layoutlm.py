@@ -3,16 +3,16 @@ import logging
 import os
 from pathlib import Path
 
-import numpy as np
 import torch
 from datasets import load_dataset
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
 from layoutlmft.models.model_args import ModelArguments
+from tqdm import tqdm
 from transformers import AutoTokenizer, HfArgumentParser, TrainingArguments
 from transformers.models.layoutlmv2.configuration_layoutlmv2 import LayoutLMv2Config
 from transformers.trainer import Trainer
 from transformers.trainer_utils import get_last_checkpoint
-from tqdm import tqdm
+
 import layoutlm.deprecated.examples.seq_labeling.data.xdoc_perturbation_score as xdoc_perturbation
 from layoutlm.deprecated.examples.seq_labeling.data.data_collator_score import DataCollatorForScore
 from layoutlm.deprecated.examples.seq_labeling.models.modeling_ITA import LayoutlmForImageTextMatching
@@ -22,29 +22,6 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
                     level=logging.INFO)
 logger = logging.getLogger(__file__)
 
-
-def pad(input_ids, bbox, image, max_seq_len, device):
-    # attention_mask = [1] * len(input_ids)
-    # if len(input_ids) < max_seq_len:
-    #     input_ids = input_ids + [tokenizer.pad_token_id] * (max_seq_len - len(input_ids))
-    # if len(input_ids) > max_seq_len:
-    #     input_ids = input_ids[:max_seq_len]
-    # if len(bbox) < max_seq_len:
-    #     bbox = bbox + [[0, 0, 0, 0]] * (max_seq_len - len(bbox))
-    # if len(bbox) > max_seq_len:
-    #     bbox = bbox[:max_seq_len]
-    # if len(attention_mask) < max_seq_len:
-    #     attention_mask = attention_mask + [0] * (max_seq_len - len(attention_mask))
-    # if len(attention_mask) > max_seq_len:
-    #     attention_mask = attention_mask[:max_seq_len]
-    return {
-        "input_ids": torch.tensor(input_ids).unsqueeze(0).to(device),
-        "bbox": torch.tensor(bbox).unsqueeze(0).to(device),
-        "image": torch.tensor(image).unsqueeze(0).to(device),
-        # "attention_mask": torch.tensor(attention_mask).unsqueeze(0).to(device),
-    }
-
-
 if __name__ == '__main__':
     parser = HfArgumentParser((ModelArguments, XFUNDataTrainingArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
@@ -53,7 +30,8 @@ if __name__ == '__main__':
                                               num_labels=1)
     model = LayoutlmForImageTextMatching(config=config, max_seq_length=data_args.max_seq_length)
     version = None
-    tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base", use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(data_args.encoder_tokenizer, use_fast=True)
+
     dataset = load_dataset(
         path=Path(xdoc_perturbation.__file__).as_posix(),
         data_dir=data_args.data_dir,
@@ -90,11 +68,23 @@ if __name__ == '__main__':
     num_eq = 0
     collator_fn = DataCollatorForScore(
         tokenizer=tokenizer,
-
+        # tokenizer=None,
     )
 
+
     def compute_metrics(p):
-        pass
+        """
+        l==1 表示good sample，分数应该大于 bad sample
+        l==0 表示bad sample
+        """
+        preds, labels = p
+        preds = [p[0] for p in preds]
+        num_true = sum([1 if (l == 1 and p > 0.5) or (l == 0 and p < 0.5) else 0 for p, l in zip(preds, labels)])
+        return {
+            "num_true": num_true,
+            "accuracy": num_true / len(labels),
+        }
+
 
     trainer = Trainer(
         model=model,
@@ -104,6 +94,45 @@ if __name__ == '__main__':
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics
     )
-    trainer.train(resume_from_checkpoint=last_checkpoint)
-    trainer.evaluate()
 
+    # state_dict = torch.load(Path(last_checkpoint)/"pytorch_model.bin")
+    # ret = model.load_state_dict(state_dict, strict=False)
+    #
+    trainer.train(resume_from_checkpoint=last_checkpoint)
+    nb_gt = 0
+    error_examples = []
+    good_examples = []
+    if training_args.do_eval:
+        device = 'cuda:0'
+        model.to(device)
+        model.eval()
+        for feature in tqdm(eval_dataset):
+
+            image = torch.tensor(feature['image'], dtype=torch.float32, device=device).unsqueeze(0)
+            good_inputs = feature['good_inputs']
+            bad_inputs = feature['bad_inputs']
+            if len(good_inputs) == 0 or len(bad_inputs) == 0:
+                continue
+            good_sample = {
+                "input_ids": torch.tensor(good_inputs, device=device).unsqueeze(0),
+                "bbox": torch.tensor(feature['good_bbox'], device=device).unsqueeze(0),
+                "image": image,
+            }
+
+            bad_sample = {
+                "input_ids": torch.tensor(bad_inputs, device=device).unsqueeze(0),
+                "bbox": torch.tensor(feature['bad_bbox'], device=device).unsqueeze(0),
+                "image": image,
+            }
+            good_score = model(**good_sample).item()
+            bad_score = model(**bad_sample).item()
+            good_example = tokenizer.convert_ids_to_tokens(good_inputs)
+            bad_example = tokenizer.convert_ids_to_tokens(bad_inputs)
+            if good_score > bad_score:
+                nb_gt += 1
+                good_examples.append((good_example, bad_example))
+            else:
+                error_examples.append((good_example, bad_example))
+        print(nb_gt / len(eval_dataset))
+        print("Good examples:" + "\t".join(good_examples[:10]))
+        print("Bad examples:" + "\t".join(error_examples[:10]))

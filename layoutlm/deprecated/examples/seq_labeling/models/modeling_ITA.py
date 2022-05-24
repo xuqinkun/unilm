@@ -15,13 +15,9 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
         super(LayoutlmForImageTextMatching, self).__init__(config)
         self.num_labels = config.num_labels
         self.max_seq_length = max_seq_length
-        self.lmv2 = LayoutLMv2Model.from_pretrained(config.name_or_path)
+        self.encoder = LayoutLMv2Model.from_pretrained(config.name_or_path)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.classifier = nn.Linear(config.hidden_size, self.num_labels)
         self.decoder = nn.Linear(config.hidden_size, 1)
-        self.fc1 = nn.Tanh()
-        self.proj = nn.Linear(max_seq_length + 49, config.num_labels)
-        self.fc2 = nn.Tanh()
         self.loss_fc = MSELoss()
         self.init_weights()
 
@@ -31,39 +27,22 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
             bbox=None,
             image=None,
             attention_mask=None,
-            token_type_ids=None,
-            position_ids=None,
-            head_mask=None,
-            inputs_embeds=None,
-            encoder_hidden_states=None,
-            encoder_attention_mask=None,
-            output_attentions=None,
-            output_hidden_states=None,
-            return_dict=None,
             scores=None,
     ):
-        try:
-            outputs = self.lmv2(
-                input_ids=input_ids,
-                bbox=bbox,
-                image=image,
-                attention_mask=attention_mask,
-                token_type_ids=token_type_ids,
-                position_ids=position_ids,
-                head_mask=head_mask,
-                inputs_embeds=inputs_embeds,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                return_dict=return_dict,
-            )
-        except RuntimeError as e:
-            raise e
-
-        sequence_output = self.dropout(outputs[0])
-        decoder_output = self.decoder(self.lmv2.pooler(sequence_output))
+        outputs = self.encoder(
+            input_ids=input_ids,
+            bbox=bbox,
+            image=image,
+            attention_mask=attention_mask,
+            return_dict=False,
+        )
+        decoder_output = self.decoder(outputs[1])
         logits = decoder_output.sigmoid()
-        loss = self.loss_fc(logits, scores.view(-1, 1))
-        return loss, logits
+        if scores is not None:
+            loss = self.loss_fc(logits, scores.view(-1, 1))
+            return loss, logits
+        else:
+            return logits
 
 
 class ResnetForImageTextMatching(nn.Module):
