@@ -8,9 +8,11 @@ import numpy as np
 from tqdm import tqdm
 from transformers import GPT2Tokenizer, GPT2Model, GPT2LMHeadModel
 from pathlib import Path
-
+import os
+import os.path
 sys.path.insert(0, '.')
-from critic.perturbations import get_local_neighbors_char_level, get_local_neighbors_word_level
+sys.path.append(os.path.dirname(__file__))
+from perturbations import get_local_neighbors_char_level, get_local_neighbors_word_level
 from utils.spacy_tokenizer import spacy_tokenize_gec
 
 model_name = 'gpt2'
@@ -44,7 +46,7 @@ def get_gpt2_loss(input_ids, attention_mask, labels):
         return loss
 
 
-MAX_LENGTH = 66
+MAX_LENGTH = 128
 
 
 def run_gpt2(sents, cuda=True, model_name=None):
@@ -124,7 +126,7 @@ def gpt2_critic(sent, verbose=1, cuda=True, fp16=True, seed='auto', n_samples=10
             logps = run_gpt2(sents, cuda)
         if logps is None:
             if verbose:
-                print('Invalid input. Maybe the sentence is too long.')
+                print(f'Invalid input:{sent}. Maybe the sentence is too long.')
             return None
         best_idx = int(logps.argmax())
         if best_idx != 0:

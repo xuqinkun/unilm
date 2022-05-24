@@ -10,13 +10,13 @@ from random import sample
 from tqdm import tqdm
 from collections import Counter
 
-from critic.edit_dist_utils import get_all_edit_dist_one, sample_random_internal_permutations
-
+from edit_dist_utils import get_all_edit_dist_one, sample_random_internal_permutations
 
 try:
     dir_path = os.path.dirname(os.path.realpath(__file__))
 except:
     dir_path = '.'
+sys.path.append(dir_path)
 common_typo = json.load(open(f"{dir_path}/common_typo.json"))
 
 random.seed(1234)
@@ -120,7 +120,7 @@ def get_local_neighbors_char_level(sent, max_n_samples=500):
 
 
 
-from critic.PIE.word_level_perturb import WordLevelPerturber_all, WordLevelPerturber_refine
+from PIE.word_level_perturb import WordLevelPerturber_all, WordLevelPerturber_refine
 from utils.text_utils import detokenize_sent
 
 def get_local_neighbors_word_level(sent_toked, max_n_samples=500, mode='refine'):

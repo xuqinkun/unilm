@@ -102,6 +102,7 @@ if __name__ == '__main__':
     nb_gt = 0
     error_examples = []
     good_examples = []
+    eq_samples = []
     if training_args.do_eval:
         device = 'cuda:0'
         model.to(device)
@@ -128,11 +129,23 @@ if __name__ == '__main__':
             bad_score = model(**bad_sample).item()
             good_example = tokenizer.convert_ids_to_tokens(good_inputs)
             bad_example = tokenizer.convert_ids_to_tokens(bad_inputs)
+            good_example = "".join(good_example).replace('▁', '')
+            bad_example = "".join(bad_example).replace('▁', '')
             if good_score > bad_score:
                 nb_gt += 1
                 good_examples.append((good_example, bad_example))
-            else:
+            elif good_score < bad_score:
                 error_examples.append((good_example, bad_example))
-        print(nb_gt / len(eval_dataset))
-        print("Good examples:" + "\t".join(good_examples[:10]))
-        print("Bad examples:" + "\t".join(error_examples[:10]))
+            else:
+                eq_samples.append((good_example, bad_example))
+
+        if training_args.local_rank in [0, -1]:
+            print(f"p(x_good)>p(x_bad): {nb_gt / len(eval_dataset)}")
+
+            print("\nGood\tBad\n")
+            for x1, x2 in good_examples[:10]:
+                print(f"{x1}\t{x2}")
+            print("\nGood\tBad\n")
+
+            for x1, x2 in error_examples[:10]:
+                print(f"{x1}\t{x2}")
