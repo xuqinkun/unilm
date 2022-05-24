@@ -167,12 +167,14 @@ def get_sent_perturbation_word_level(tokenizer, line, n_samples, img_size):
             elif prob < replace_token_prob + delete_token_prob:
                 # Drop token
                 tmp_box.pop(-1)
+                label = UNCOVERED
             elif prob < replace_token_prob + delete_token_prob + insert_token_prob:
                 # Insert a token
                 rand_token = random.randint(0, vocab_size)
                 tmp_tokens.append(token)
                 tmp_box.append(box)
                 tmp_tokens.append(rand_token)
+                label = UNCOVERED
             else:
                 tmp_tokens.append(token)
         dummy_labels.append(label)
