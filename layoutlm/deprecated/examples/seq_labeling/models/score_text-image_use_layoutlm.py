@@ -67,7 +67,7 @@ if __name__ == '__main__':
         is_tar_file=data_args.is_tar_file,
         ocr_path=data_args.ocr_path,
         force_ocr=data_args.force_ocr,
-        version='0.0.1',
+        version='0.0.2',
         output_dir=training_args.output_dir,
     )
     last_checkpoint = None
@@ -86,23 +86,24 @@ if __name__ == '__main__':
 
     train_dataset = dataset['train']
     eval_dataset = dataset['validation']
-    state_dict = torch.load(Path(last_checkpoint) / "pytorch_model.bin")
-    state_dict.pop("proj.weight")
-    state_dict.pop("proj.bias")
-    state_dict.pop("classifier.weight")
-    state_dict.pop("classifier.bias")
     num_good_lg_than_bad = 0
     num_eq = 0
     collator_fn = DataCollatorForScore(
         tokenizer=tokenizer,
 
     )
+
+    def compute_metrics(p):
+        pass
+
     trainer = Trainer(
         model=model,
         args=training_args,
         data_collator=collator_fn,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
+        compute_metrics=compute_metrics
     )
-    trainer.train()
+    trainer.train(resume_from_checkpoint=last_checkpoint)
+    trainer.evaluate()
 

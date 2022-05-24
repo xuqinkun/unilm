@@ -137,7 +137,7 @@ def get_sent_perturbation_word_level(tokenizer, line, n_samples, img_size):
     dummy_labels = [COVERED]
 
     all_special_ids = tokenizer.all_special_ids
-    vocab_size = tokenizer.vocab_size
+    vocab_size = tokenizer.vocab_size - 1
     for i in range(n_samples):
         tmp_tokens = []
         tmp_box = []

@@ -169,12 +169,3 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
                     "bad_bbox": bad_bbox,
                     "image": image,
                 }
-                # for j, (inputs, bbox, label) in enumerate(zip(dummy_inputs, dummy_bbox, dummy_labels)):
-                #     guid = f"{key}-{i}-{j}"
-                #     yield guid, {
-                #         "id": guid,
-                #         "input_ids": inputs,
-                #         "bbox": bbox,
-                #         "label": label,
-                #         "image": image,
-                #     }
