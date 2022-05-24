@@ -29,10 +29,10 @@ class DataCollatorForScore:
 
         good_inputs = [feature['good_inputs'] for feature in features]
         good_bbox = [feature['good_bbox'] for feature in features]
-        good_scores = [1] * len(good_inputs)
         bad_inputs = [feature['bad_inputs'] for feature in features]
         bad_bbox = [feature['bad_bbox'] for feature in features]
-        bad_scores = [0] * len(bad_inputs)
+        good_scores = [feature['good_label'] for feature in features]
+        bad_scores = [feature['bad_label'] for feature in features]
         batch = {
             "input_ids": good_inputs + bad_inputs,
             "bbox": good_bbox + bad_bbox,

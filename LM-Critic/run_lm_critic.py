@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-import torch
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoTokenizer
@@ -42,7 +42,7 @@ if __name__ == '__main__':
         cache_dir=None,
         pred_only=False,
         is_tar_file=True,
-        version='0.0.3',
+        version='0.0.4',
         output_dir='/home/std2020/xuqinkun/model/contract_ITA',
     )
     eval_dataset = dataset['validation']

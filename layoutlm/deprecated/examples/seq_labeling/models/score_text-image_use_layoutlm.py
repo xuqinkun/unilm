@@ -22,6 +22,36 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
                     level=logging.INFO)
 logger = logging.getLogger(__file__)
 
+
+def convert_dataset_to_sents(eval_dataset):
+    eval_samples = []
+    for feature in eval_dataset:
+        good_inputs = feature['good_inputs']
+        bad_inputs = feature['bad_inputs']
+        if len(good_inputs) == 0 or len(bad_inputs) == 0 or good_inputs == bad_inputs:
+            continue
+        good_example = tokenizer.convert_ids_to_tokens(good_inputs)
+        bad_example = tokenizer.convert_ids_to_tokens(bad_inputs)
+        good_example = "".join(good_example).replace('▁', '')
+        bad_example = "".join(bad_example).replace('▁', '')
+        if good_example == bad_example:
+            continue
+        x_good = {
+            "text": good_example,
+            "input_ids": good_inputs,
+            "bbox": feature['good_bbox'],
+            "image": feature['image'],
+        }
+        x_bad = {
+            "text": bad_example,
+            "input_ids": bad_inputs,
+            "bbox": feature['bad_bbox'],
+            "image": feature['image'],
+        }
+        eval_samples.append((x_good, x_bad))
+    return eval_samples
+
+
 if __name__ == '__main__':
     parser = HfArgumentParser((ModelArguments, XFUNDataTrainingArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
@@ -45,7 +75,7 @@ if __name__ == '__main__':
         is_tar_file=data_args.is_tar_file,
         ocr_path=data_args.ocr_path,
         force_ocr=data_args.force_ocr,
-        version='0.0.3',
+        version='0.0.4',
         output_dir=training_args.output_dir,
     )
     last_checkpoint = None
@@ -70,6 +100,7 @@ if __name__ == '__main__':
         tokenizer=tokenizer,
     )
 
+
     def compute_metrics(p):
         """
         l==1 表示good sample，分数应该大于 bad sample
@@ -83,6 +114,7 @@ if __name__ == '__main__':
             "accuracy": num_true / len(labels),
         }
 
+
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -92,10 +124,11 @@ if __name__ == '__main__':
         compute_metrics=compute_metrics
     )
 
-    max_eval_examples = data_args.max_val_samples if data_args.max_val_samples else len(eval_dataset)
-    eval_indices = np.arange(len(eval_dataset))
+    max_eval_examples = 500
+    eval_samples = convert_dataset_to_sents(eval_dataset)
+    eval_indices = np.arange(len(eval_samples))
     np.random.shuffle(eval_indices)
-    eval_samples = eval_dataset.select(eval_indices[:max_eval_examples])
+    eval_samples = [eval_samples[i] for i in eval_indices[:max_eval_examples]]
     trainer.train(resume_from_checkpoint=last_checkpoint)
     error_examples = []
     good_examples = []
@@ -104,28 +137,13 @@ if __name__ == '__main__':
         device = 'cuda:0'
         model.to(device)
         model.eval()
-        for feature in tqdm(eval_samples):
-            image = torch.tensor(feature['image'], dtype=torch.float32, device=device).unsqueeze(0)
-            good_inputs = feature['good_inputs']
-            bad_inputs = feature['bad_inputs']
-            if len(good_inputs) == 0 or len(bad_inputs) == 0:
-                continue
-            good_sample = {
-                "input_ids": torch.tensor(good_inputs, device=device).unsqueeze(0),
-                "bbox": torch.tensor(feature['good_bbox'], device=device).unsqueeze(0),
-                "image": image,
-            }
-            bad_sample = {
-                "input_ids": torch.tensor(bad_inputs, device=device).unsqueeze(0),
-                "bbox": torch.tensor(feature['bad_bbox'], device=device).unsqueeze(0),
-                "image": image,
-            }
-            good_score = model(**good_sample).item()
-            bad_score = model(**bad_sample).item()
-            good_example = tokenizer.convert_ids_to_tokens(good_inputs)
-            bad_example = tokenizer.convert_ids_to_tokens(bad_inputs)
-            good_example = "".join(good_example).replace('▁', '')
-            bad_example = "".join(bad_example).replace('▁', '')
+        for x_good, x_bad in tqdm(eval_samples):
+            good_example = x_good.pop("text")
+            bad_example = x_bad.pop("text")
+            x_good = {k: torch.tensor(v, device=device).unsqueeze(0) for k, v in x_good.items()}
+            x_bad = {k: torch.tensor(v, device=device).unsqueeze(0) for k, v in x_bad.items()}
+            good_score = model(**x_good).item()
+            bad_score = model(**x_bad).item()
             if good_score > bad_score:
                 good_examples.append((good_example, bad_example))
             elif good_score < bad_score:
@@ -133,11 +151,11 @@ if __name__ == '__main__':
             else:
                 eq_samples.append((good_example, bad_example))
 
-        print(f"p(x_good)>p(x_bad): {100* len(good_examples) / len(eval_samples):.2f}%")
+        print(f"p(x_good)>p(x_bad): {100 * len(good_examples) / len(eval_samples):.2f}%")
         print("\nGood\tBad\n")
         for x1, x2 in good_examples[:10]:
             print(f"p({x1}) > p({x2})")
         print("\nGood\tBad\n")
         for x1, x2 in error_examples[:10]:
             print(f"p({x1})==p({x2})")
-        print(f"{100*len(eq_samples) / len(eval_samples):.2f}%")
+        print(f"{100 * len(eq_samples) / len(eval_samples):.2f}%")

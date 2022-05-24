@@ -54,7 +54,8 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
             self.force_ocr = kwargs['force_ocr']
         version = kwargs['version']
         if version:
-            super(XDocPerturbationScore, self).__init__(cache_dir=kwargs['cache_dir'], name=kwargs['name'], version=version)
+            super(XDocPerturbationScore, self).__init__(cache_dir=kwargs['cache_dir'], name=kwargs['name'],
+                                                        version=version)
         else:
             super(XDocPerturbationScore, self).__init__(cache_dir=kwargs['cache_dir'], name=kwargs['name'])
         self.BUILDER_CONFIGS = [XConfig(name=f"x{kwargs['doc_type']}.{lang}", lang=lang) for lang in _LANG]
@@ -69,6 +70,8 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
                     "good_bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
                     "bad_bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
                     "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
+                    "good_label": datasets.features.ClassLabel(names=[UNCOVERED, COVERED]),
+                    "bad_label": datasets.features.ClassLabel(names=[UNCOVERED, COVERED]),
                 }
             ),
             supervised_keys=None,
@@ -159,6 +162,7 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
                                                                                           image_shape)
                 good_inputs, bad_inputs = dummy_inputs
                 good_bbox, bad_bbox = dummy_bbox
+                good_label, bad_label = dummy_labels
                 assert len(good_inputs) == len(good_bbox)
                 assert len(bad_inputs) == len(bad_bbox)
                 yield guid, {
@@ -167,5 +171,7 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
                     "bad_inputs": bad_inputs,
                     "good_bbox": good_bbox,
                     "bad_bbox": bad_bbox,
+                    "good_label": good_label,
+                    "bad_label": bad_label,
                     "image": image,
                 }
