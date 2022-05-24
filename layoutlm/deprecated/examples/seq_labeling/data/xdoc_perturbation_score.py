@@ -159,6 +159,8 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
                                                                                           image_shape)
                 good_inputs, bad_inputs = dummy_inputs
                 good_bbox, bad_bbox = dummy_bbox
+                assert len(good_inputs) == len(good_bbox)
+                assert len(bad_inputs) == len(bad_bbox)
                 yield guid, {
                     "id": guid,
                     "good_inputs": good_inputs,

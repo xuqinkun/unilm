@@ -18,7 +18,9 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, self.num_labels)
         self.decoder = nn.Linear(config.hidden_size, 1)
+        self.fc1 = nn.Tanh()
         self.proj = nn.Linear(max_seq_length + 49, config.num_labels)
+        self.fc2 = nn.Tanh()
         self.init_weights()
 
     def forward(
@@ -38,34 +40,38 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
             return_dict=None,
             label=None,
     ):
-        outputs = self.lmv2(
-            input_ids=input_ids,
-            bbox=bbox,
-            image=image,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            position_ids=position_ids,
-            head_mask=head_mask,
-            inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
+        try:
+            outputs = self.lmv2(
+                input_ids=input_ids,
+                bbox=bbox,
+                image=image,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                position_ids=position_ids,
+                head_mask=head_mask,
+                inputs_embeds=inputs_embeds,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
+        except RuntimeError as e:
+            raise e
 
         sequence_output = self.dropout(outputs[0])
-        logits = self.decoder(sequence_output).squeeze(-1)
-
+        # logits = self.decoder(sequence_output).squeeze(-1)
+        # logits = self.fc1(logits)
+        logits = self.decoder(self.lmv2.pooler(sequence_output))
         # if attention_mask is not None:
         #     logits[:, :self.max_seq_length] = logits[:, :self.max_seq_length] * attention_mask
-
-        active_logits = self.proj(logits)
-        probs = logits.softmax(dim=1)
-        if label is not None:
-            loss_fct = nn.CrossEntropyLoss(reduction="sum")
-            loss = loss_fct(probs.view(-1, self.num_labels), label.view(-1))
-            return loss, probs
-        else:
-            return active_logits
+        return logits
+        # active_logits = self.fc2(self.proj(logits))
+        # probs = logits.softmax(dim=1)
+        # if label is not None:
+        #     loss_fct = nn.CrossEntropyLoss(reduction="sum")
+        #     loss = loss_fct(probs.view(-1, self.num_labels), label.view(-1))
+        #     return loss, probs
+        # else:
+        #     return sequence_output.sum()
 
 
 class ResnetForImageTextMatching(nn.Module):

@@ -24,24 +24,24 @@ logger = logging.getLogger(__file__)
 
 
 def pad(input_ids, bbox, image, max_seq_len, device):
-    attention_mask = [1] * len(input_ids)
-    if len(input_ids) < max_seq_len:
-        input_ids = input_ids + [tokenizer.pad_token_id] * (max_seq_len - len(input_ids))
-    if len(input_ids) > max_seq_len:
-        input_ids = input_ids[:max_seq_len]
-    if len(bbox) < max_seq_len:
-        bbox = bbox + [[0, 0, 0, 0]] * (max_seq_len - len(bbox))
-    if len(bbox) > max_seq_len:
-        bbox = bbox[:max_seq_len]
-    if len(attention_mask) < max_seq_len:
-        attention_mask = attention_mask + [0] * (max_seq_len - len(attention_mask))
-    if len(attention_mask) > max_seq_len:
-        attention_mask = attention_mask[:max_seq_len]
+    # attention_mask = [1] * len(input_ids)
+    # if len(input_ids) < max_seq_len:
+    #     input_ids = input_ids + [tokenizer.pad_token_id] * (max_seq_len - len(input_ids))
+    # if len(input_ids) > max_seq_len:
+    #     input_ids = input_ids[:max_seq_len]
+    # if len(bbox) < max_seq_len:
+    #     bbox = bbox + [[0, 0, 0, 0]] * (max_seq_len - len(bbox))
+    # if len(bbox) > max_seq_len:
+    #     bbox = bbox[:max_seq_len]
+    # if len(attention_mask) < max_seq_len:
+    #     attention_mask = attention_mask + [0] * (max_seq_len - len(attention_mask))
+    # if len(attention_mask) > max_seq_len:
+    #     attention_mask = attention_mask[:max_seq_len]
     return {
         "input_ids": torch.tensor(input_ids).unsqueeze(0).to(device),
         "bbox": torch.tensor(bbox).unsqueeze(0).to(device),
         "image": torch.tensor(image).unsqueeze(0).to(device),
-        "attention_mask": torch.tensor(attention_mask).unsqueeze(0).to(device),
+        # "attention_mask": torch.tensor(attention_mask).unsqueeze(0).to(device),
     }
 
 
@@ -67,7 +67,7 @@ if __name__ == '__main__':
         is_tar_file=data_args.is_tar_file,
         ocr_path=data_args.ocr_path,
         force_ocr=data_args.force_ocr,
-        version=data_args.version,
+        version='0.0.1',
         output_dir=training_args.output_dir,
     )
     last_checkpoint = None
@@ -107,6 +107,8 @@ if __name__ == '__main__':
         good_bbox = data_set["good_bbox"]
         bad_bbox = data_set["bad_bbox"]
         image = data_set["image"]
+        if len(bad_inputs) == 0 or len(good_inputs) == 0:
+            continue
         good_sample = pad(good_inputs, good_bbox, image, data_args.max_seq_length, device)
         bad_sample = pad(bad_inputs, bad_bbox, image, data_args.max_seq_length, device)
         good_scroe = model(**good_sample).item()
