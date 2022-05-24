@@ -2,7 +2,7 @@
 import logging
 import os
 from pathlib import Path
-
+import numpy as np
 import torch
 from datasets import load_dataset
 from layoutlmft.data.data_args import XFUNDataTrainingArguments
@@ -45,7 +45,7 @@ if __name__ == '__main__':
         is_tar_file=data_args.is_tar_file,
         ocr_path=data_args.ocr_path,
         force_ocr=data_args.force_ocr,
-        version='0.0.2',
+        version='0.0.3',
         output_dir=training_args.output_dir,
     )
     last_checkpoint = None
@@ -68,9 +68,7 @@ if __name__ == '__main__':
     num_eq = 0
     collator_fn = DataCollatorForScore(
         tokenizer=tokenizer,
-        # tokenizer=None,
     )
-
 
     def compute_metrics(p):
         """
@@ -85,7 +83,6 @@ if __name__ == '__main__':
             "accuracy": num_true / len(labels),
         }
 
-
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -95,20 +92,19 @@ if __name__ == '__main__':
         compute_metrics=compute_metrics
     )
 
-    # state_dict = torch.load(Path(last_checkpoint)/"pytorch_model.bin")
-    # ret = model.load_state_dict(state_dict, strict=False)
-    #
+    max_eval_examples = data_args.max_val_samples if data_args.max_val_samples else len(eval_dataset)
+    eval_indices = np.arange(len(eval_dataset))
+    np.random.shuffle(eval_indices)
+    eval_samples = eval_dataset.select(eval_indices[:max_eval_examples])
     trainer.train(resume_from_checkpoint=last_checkpoint)
-    nb_gt = 0
     error_examples = []
     good_examples = []
     eq_samples = []
-    if training_args.do_eval:
+    if training_args.local_rank in [0, -1] and training_args.do_eval:
         device = 'cuda:0'
         model.to(device)
         model.eval()
-        for feature in tqdm(eval_dataset):
-
+        for feature in tqdm(eval_samples):
             image = torch.tensor(feature['image'], dtype=torch.float32, device=device).unsqueeze(0)
             good_inputs = feature['good_inputs']
             bad_inputs = feature['bad_inputs']
@@ -119,7 +115,6 @@ if __name__ == '__main__':
                 "bbox": torch.tensor(feature['good_bbox'], device=device).unsqueeze(0),
                 "image": image,
             }
-
             bad_sample = {
                 "input_ids": torch.tensor(bad_inputs, device=device).unsqueeze(0),
                 "bbox": torch.tensor(feature['bad_bbox'], device=device).unsqueeze(0),
@@ -132,20 +127,17 @@ if __name__ == '__main__':
             good_example = "".join(good_example).replace('▁', '')
             bad_example = "".join(bad_example).replace('▁', '')
             if good_score > bad_score:
-                nb_gt += 1
                 good_examples.append((good_example, bad_example))
             elif good_score < bad_score:
                 error_examples.append((good_example, bad_example))
             else:
                 eq_samples.append((good_example, bad_example))
 
-        if training_args.local_rank in [0, -1]:
-            print(f"p(x_good)>p(x_bad): {nb_gt / len(eval_dataset)}")
-
-            print("\nGood\tBad\n")
-            for x1, x2 in good_examples[:10]:
-                print(f"{x1}\t{x2}")
-            print("\nGood\tBad\n")
-
-            for x1, x2 in error_examples[:10]:
-                print(f"{x1}\t{x2}")
+        print(f"p(x_good)>p(x_bad): {100* len(good_examples) / len(eval_samples):.2f}%")
+        print("\nGood\tBad\n")
+        for x1, x2 in good_examples[:10]:
+            print(f"p({x1}) > p({x2})")
+        print("\nGood\tBad\n")
+        for x1, x2 in error_examples[:10]:
+            print(f"p({x1})==p({x2})")
+        print(f"{100*len(eq_samples) / len(eval_samples):.2f}%")

@@ -116,6 +116,14 @@ def read_json_file(path):
         return json.load(f)
 
 
+replace_token_prob = 0.1
+delete_token_prob = 0.1
+insert_token_prob = 0.1
+print(f"replace_token_prob:{replace_token_prob}")
+print(f"delete_token_prob:{delete_token_prob}")
+print(f"insert_token_prob:{insert_token_prob}")
+
+
 def get_sent_perturbation_word_level(tokenizer, line, n_samples, img_size):
     tokenized_inputs = tokenizer(
         line["text"],
@@ -149,24 +157,23 @@ def get_sent_perturbation_word_level(tokenizer, line, n_samples, img_size):
                 tmp_tokens.append(token)
                 continue
             prob = random.random()
-            if prob < 0.7:
+            if prob < replace_token_prob:
                 # Replace current token by a random token in vocab
                 rand_token = random.randint(0, vocab_size)
                 while rand_token == token or rand_token in all_special_ids:
                     rand_token = random.randint(0, vocab_size)
                 tmp_tokens.append(rand_token)
                 label = UNCOVERED
-            elif prob < 0.8:
+            elif prob < replace_token_prob + delete_token_prob:
                 # Drop token
                 tmp_box.pop(-1)
-            elif prob < 0.9:
+            elif prob < replace_token_prob + delete_token_prob + insert_token_prob:
                 # Insert a token
                 rand_token = random.randint(0, vocab_size)
                 tmp_tokens.append(token)
                 tmp_box.append(box)
                 tmp_tokens.append(rand_token)
             else:
-                # Keep it
                 tmp_tokens.append(token)
         dummy_labels.append(label)
         dummy_bbox.append(tmp_box)
