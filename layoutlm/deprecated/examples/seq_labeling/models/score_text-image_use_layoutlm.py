@@ -14,7 +14,7 @@ from transformers.trainer import Trainer
 from transformers.trainer_utils import get_last_checkpoint
 from tqdm import tqdm
 import layoutlm.deprecated.examples.seq_labeling.data.xdoc_perturbation_score as xdoc_perturbation
-from layoutlm.deprecated.examples.seq_labeling.data.data_collator import DataCollatorForClassifier
+from layoutlm.deprecated.examples.seq_labeling.data.data_collator_score import DataCollatorForScore
 from layoutlm.deprecated.examples.seq_labeling.models.modeling_ITA import LayoutlmForImageTextMatching
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -91,32 +91,18 @@ if __name__ == '__main__':
     state_dict.pop("proj.bias")
     state_dict.pop("classifier.weight")
     state_dict.pop("classifier.bias")
-    model.load_state_dict(state_dict, strict=False)
-    if torch.cuda.is_available():
-        device = "cuda:0"
-    else:
-        device = 'cpu'
-    model.to(device)
-    model.eval()
     num_good_lg_than_bad = 0
     num_eq = 0
-    train_dataset = train_dataset.select(range(600))
-    for data_set in tqdm(train_dataset):
-        good_inputs = data_set["good_inputs"]
-        bad_inputs = data_set["bad_inputs"]
-        good_bbox = data_set["good_bbox"]
-        bad_bbox = data_set["bad_bbox"]
-        image = data_set["image"]
-        if len(bad_inputs) == 0 or len(good_inputs) == 0:
-            continue
-        good_sample = pad(good_inputs, good_bbox, image, data_args.max_seq_length, device)
-        bad_sample = pad(bad_inputs, bad_bbox, image, data_args.max_seq_length, device)
-        good_scroe = model(**good_sample).item()
-        bad_score = model(**bad_sample).item()
-        if good_scroe > bad_score:
-            num_good_lg_than_bad += 1
-        if good_scroe == bad_score:
-            num_eq += 1
-    print(f"num_good_lg_than_bad:{num_good_lg_than_bad}")
-    print(f"num_eq:{num_eq}")
-    print(num_good_lg_than_bad / len(train_dataset))
+    collator_fn = DataCollatorForScore(
+        tokenizer=tokenizer,
+
+    )
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        data_collator=collator_fn,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+    )
+    trainer.train()
+

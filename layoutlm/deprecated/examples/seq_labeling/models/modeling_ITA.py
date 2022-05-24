@@ -6,6 +6,7 @@ from layoutlmft.models.layoutlmv2.modeling_layoutlmv2 import (
     LayoutLMv2Model
 )
 from torch import nn
+from torch.nn import MSELoss
 
 
 class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
@@ -21,6 +22,7 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
         self.fc1 = nn.Tanh()
         self.proj = nn.Linear(max_seq_length + 49, config.num_labels)
         self.fc2 = nn.Tanh()
+        self.loss_fc = MSELoss()
         self.init_weights()
 
     def forward(
@@ -38,7 +40,7 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
             output_attentions=None,
             output_hidden_states=None,
             return_dict=None,
-            label=None,
+            scores=None,
     ):
         try:
             outputs = self.lmv2(
@@ -58,20 +60,10 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
             raise e
 
         sequence_output = self.dropout(outputs[0])
-        # logits = self.decoder(sequence_output).squeeze(-1)
-        # logits = self.fc1(logits)
-        logits = self.decoder(self.lmv2.pooler(sequence_output))
-        # if attention_mask is not None:
-        #     logits[:, :self.max_seq_length] = logits[:, :self.max_seq_length] * attention_mask
-        return logits
-        # active_logits = self.fc2(self.proj(logits))
-        # probs = logits.softmax(dim=1)
-        # if label is not None:
-        #     loss_fct = nn.CrossEntropyLoss(reduction="sum")
-        #     loss = loss_fct(probs.view(-1, self.num_labels), label.view(-1))
-        #     return loss, probs
-        # else:
-        #     return sequence_output.sum()
+        decoder_output = self.decoder(self.lmv2.pooler(sequence_output))
+        logits = decoder_output.sigmoid()
+        loss = self.loss_fc(logits, scores.view(-1, 1))
+        return loss, logits
 
 
 class ResnetForImageTextMatching(nn.Module):
