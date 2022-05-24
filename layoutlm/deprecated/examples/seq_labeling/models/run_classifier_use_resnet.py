@@ -13,7 +13,7 @@ from transformers.models.layoutlmv2.configuration_layoutlmv2 import LayoutLMv2Co
 from transformers.trainer import Trainer
 from transformers.trainer_utils import get_last_checkpoint
 
-import layoutlm.deprecated.examples.seq_labeling.data.xdoc_perturbation as xdoc_perturbation
+import layoutlm.deprecated.examples.seq_labeling.data.xdoc_perturbation_score as xdoc_perturbation
 from layoutlm.deprecated.examples.seq_labeling.data.data_collator import DataCollatorForClassifier
 from layoutlm.deprecated.examples.seq_labeling.models.modeling_ITA import ResnetForImageTextMatching
 

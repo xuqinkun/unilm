@@ -12,7 +12,7 @@ from transformers import AutoTokenizer, HfArgumentParser, TrainingArguments
 from transformers.models.layoutlmv2.configuration_layoutlmv2 import LayoutLMv2Config
 from transformers.trainer import Trainer
 from transformers.trainer_utils import get_last_checkpoint
-
+from tqdm import tqdm
 import layoutlm.deprecated.examples.seq_labeling.data.xdoc_perturbation_score as xdoc_perturbation
 from layoutlm.deprecated.examples.seq_labeling.data.data_collator import DataCollatorForClassifier
 from layoutlm.deprecated.examples.seq_labeling.models.modeling_ITA import LayoutlmForImageTextMatching
@@ -22,12 +22,35 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
                     level=logging.INFO)
 logger = logging.getLogger(__file__)
 
+
+def pad(input_ids, bbox, image, max_seq_len, device):
+    attention_mask = [1] * len(input_ids)
+    if len(input_ids) < max_seq_len:
+        input_ids = input_ids + [tokenizer.pad_token_id] * (max_seq_len - len(input_ids))
+    if len(input_ids) > max_seq_len:
+        input_ids = input_ids[:max_seq_len]
+    if len(bbox) < max_seq_len:
+        bbox = bbox + [[0, 0, 0, 0]] * (max_seq_len - len(bbox))
+    if len(bbox) > max_seq_len:
+        bbox = bbox[:max_seq_len]
+    if len(attention_mask) < max_seq_len:
+        attention_mask = attention_mask + [0] * (max_seq_len - len(attention_mask))
+    if len(attention_mask) > max_seq_len:
+        attention_mask = attention_mask[:max_seq_len]
+    return {
+        "input_ids": torch.tensor(input_ids).unsqueeze(0).to(device),
+        "bbox": torch.tensor(bbox).unsqueeze(0).to(device),
+        "image": torch.tensor(image).unsqueeze(0).to(device),
+        "attention_mask": torch.tensor(attention_mask).unsqueeze(0).to(device),
+    }
+
+
 if __name__ == '__main__':
     parser = HfArgumentParser((ModelArguments, XFUNDataTrainingArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     config = LayoutLMv2Config.from_pretrained(model_args.model_name_or_path,
                                               name_or_path=model_args.model_name_or_path,
-                                              num_labels=2)
+                                              num_labels=1)
     model = LayoutlmForImageTextMatching(config=config, max_seq_length=data_args.max_seq_length)
     version = None
     tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base", use_fast=True)
@@ -63,54 +86,35 @@ if __name__ == '__main__':
 
     train_dataset = dataset['train']
     eval_dataset = dataset['validation']
-
-    max_train_samples = data_args.max_train_samples if data_args.max_train_samples else len(train_dataset)
-    max_eval_samples = data_args.max_val_samples if data_args.max_val_samples else len(eval_dataset)
-    train_indices = np.arange(len(train_dataset))
-    eval_indices = np.arange(len(eval_dataset))
-    np.random.shuffle(train_indices)
-    np.random.shuffle(eval_indices)
-    train_dataset = train_dataset.select(train_indices[:max_train_samples])
-    eval_dataset = eval_dataset.select(eval_indices[:max_eval_samples])
-    features = train_dataset.features['label'].names
-    id2label = {i: l for i, l in enumerate(features)}
-    label_to_id = {v: k for k, v in id2label.items()}
-
-
-    data_collator = DataCollatorForClassifier(
-        tokenizer,
-        # pad_to_multiple_of=batch_size,
-        padding="max_length",
-        max_length=data_args.max_seq_length,
-        label_to_id=label_to_id,
-        # device=device,
-    )
-
-    # model.to(device)
-
-
-    def compute_metrics(p):
-        logits, labels = p
-        y_pred = np.argmax(logits, axis=-1).tolist()
-        y_true = np.squeeze(labels, axis=-1)
-        num_correct = sum([1 if p == l else 0 for p, l in zip(y_pred, y_true)])
-        return {"accuracy": num_correct / len(y_true)}
-
-
-    trainer = Trainer(model,
-                      args=training_args,
-                      data_collator=data_collator,
-                      train_dataset=train_dataset,
-                      eval_dataset=eval_dataset,
-                      tokenizer=tokenizer,
-                      compute_metrics=compute_metrics,
-                      )
-
-    if training_args.do_train:
-        trainer.train(resume_from_checkpoint=last_checkpoint)
-    if training_args.do_eval:
-        metrics = trainer.evaluate()
-        for k, v in metrics.items():
-            print(f"{k}:{v}")
-    if training_args.do_predict:
-        trainer.predict(test_dataset=eval_dataset)
+    state_dict = torch.load(Path(last_checkpoint) / "pytorch_model.bin")
+    state_dict.pop("proj.weight")
+    state_dict.pop("proj.bias")
+    state_dict.pop("classifier.weight")
+    state_dict.pop("classifier.bias")
+    model.load_state_dict(state_dict, strict=False)
+    if torch.cuda.is_available():
+        device = "cuda:0"
+    else:
+        device = 'cpu'
+    model.to(device)
+    model.eval()
+    num_good_lg_than_bad = 0
+    num_eq = 0
+    train_dataset = train_dataset.select(range(600))
+    for data_set in tqdm(train_dataset):
+        good_inputs = data_set["good_inputs"]
+        bad_inputs = data_set["bad_inputs"]
+        good_bbox = data_set["good_bbox"]
+        bad_bbox = data_set["bad_bbox"]
+        image = data_set["image"]
+        good_sample = pad(good_inputs, good_bbox, image, data_args.max_seq_length, device)
+        bad_sample = pad(bad_inputs, bad_bbox, image, data_args.max_seq_length, device)
+        good_scroe = model(**good_sample).item()
+        bad_score = model(**bad_sample).item()
+        if good_scroe > bad_score:
+            num_good_lg_than_bad += 1
+        if good_scroe == bad_score:
+            num_eq += 1
+    print(f"num_good_lg_than_bad:{num_good_lg_than_bad}")
+    print(f"num_eq:{num_eq}")
+    print(num_good_lg_than_bad / len(train_dataset))

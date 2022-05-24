@@ -6,7 +6,6 @@ from layoutlmft.models.layoutlmv2.modeling_layoutlmv2 import (
     LayoutLMv2Model
 )
 from torch import nn
-from torch.nn import CrossEntropyLoss
 
 
 class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
@@ -56,17 +55,17 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
         sequence_output = self.dropout(outputs[0])
         logits = self.decoder(sequence_output).squeeze(-1)
 
-        if attention_mask is not None:
-            logits[:, :self.max_seq_length] = logits[:, :self.max_seq_length] * attention_mask
+        # if attention_mask is not None:
+        #     logits[:, :self.max_seq_length] = logits[:, :self.max_seq_length] * attention_mask
 
         active_logits = self.proj(logits)
-        probs = active_logits.softmax(dim=1)
+        probs = logits.softmax(dim=1)
         if label is not None:
             loss_fct = nn.CrossEntropyLoss(reduction="sum")
             loss = loss_fct(probs.view(-1, self.num_labels), label.view(-1))
             return loss, probs
         else:
-            return probs
+            return active_logits
 
 
 class ResnetForImageTextMatching(nn.Module):

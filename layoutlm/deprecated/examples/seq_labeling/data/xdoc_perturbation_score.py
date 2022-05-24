@@ -36,7 +36,7 @@ class XConfig(datasets.BuilderConfig):
         self.addtional_langs = addtional_langs
 
 
-class XDocPerturbation(datasets.GeneratorBasedBuilder):
+class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
 
     def __init__(self, **kwargs):
         self.data_dir = Path(kwargs['data_dir'])
@@ -54,9 +54,9 @@ class XDocPerturbation(datasets.GeneratorBasedBuilder):
             self.force_ocr = kwargs['force_ocr']
         version = kwargs['version']
         if version:
-            super(XDocPerturbation, self).__init__(cache_dir=kwargs['cache_dir'], name=kwargs['name'], version=version)
+            super(XDocPerturbationScore, self).__init__(cache_dir=kwargs['cache_dir'], name=kwargs['name'], version=version)
         else:
-            super(XDocPerturbation, self).__init__(cache_dir=kwargs['cache_dir'], name=kwargs['name'])
+            super(XDocPerturbationScore, self).__init__(cache_dir=kwargs['cache_dir'], name=kwargs['name'])
         self.BUILDER_CONFIGS = [XConfig(name=f"x{kwargs['doc_type']}.{lang}", lang=lang) for lang in _LANG]
 
     def _info(self):
@@ -64,12 +64,10 @@ class XDocPerturbation(datasets.GeneratorBasedBuilder):
             features=datasets.Features(
                 {
                     "id": datasets.Value("string"),
-                    "input_ids": datasets.Sequence(datasets.Value("int64")),
-                    "bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
-                    "label":
-                        datasets.features.ClassLabel(
-                            names=self.label_names
-                        ),
+                    "good_inputs": datasets.Sequence(datasets.Value("int64")),
+                    "bad_inputs": datasets.Sequence(datasets.Value("int64")),
+                    "good_bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
+                    "bad_bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
                     "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
                 }
             ),
@@ -131,6 +129,8 @@ class XDocPerturbation(datasets.GeneratorBasedBuilder):
         file_dict = get_file_index(path_or_paths)
         if self.ocr_path and not self.is_tar_file:
             update_ocr_index(file_dict, self.ocr_path)
+        select_keys = list(file_dict.keys())[:100]
+        file_dict = {k: file_dict[k] for k in select_keys}
         for key, file_group in file_dict.items():
             if 'img' not in file_group:
                 print(f"Can't find img file of {key}")
@@ -154,14 +154,25 @@ class XDocPerturbation(datasets.GeneratorBasedBuilder):
 
             lines = get_lines(ocr_data)
             for i, line in enumerate(lines):
-                dummy_inputs, dummy_bbox, dummy_labels = get_sent_perturbation_word_level(self.tokenizer, line, 5,
+                guid = f"{key}-{i}"
+                dummy_inputs, dummy_bbox, dummy_labels = get_sent_perturbation_word_level(self.tokenizer, line, 1,
                                                                                           image_shape)
-                for j, (inputs, bbox, label) in enumerate(zip(dummy_inputs, dummy_bbox, dummy_labels)):
-                    guid = f"{key}-{i}-{j}"
-                    yield guid, {
-                        "id": guid,
-                        "input_ids": inputs,
-                        "bbox": bbox,
-                        "label": label,
-                        "image": image,
-                    }
+                good_inputs, bad_inputs = dummy_inputs
+                good_bbox, bad_bbox = dummy_bbox
+                yield guid, {
+                    "id": guid,
+                    "good_inputs": good_inputs,
+                    "bad_inputs": bad_inputs,
+                    "good_bbox": good_bbox,
+                    "bad_bbox": bad_bbox,
+                    "image": image,
+                }
+                # for j, (inputs, bbox, label) in enumerate(zip(dummy_inputs, dummy_bbox, dummy_labels)):
+                #     guid = f"{key}-{i}-{j}"
+                #     yield guid, {
+                #         "id": guid,
+                #         "input_ids": inputs,
+                #         "bbox": bbox,
+                #         "label": label,
+                #         "image": image,
+                #     }
