@@ -74,10 +74,9 @@ if __name__ == '__main__':
             eq_examples.append((x_good, x_bad))
 
     print(f"p(x_good)>p(x_bad): {100*len(good_examples) / len(eval_samples):.2f}%\n")
-    print(f"p(x_good)==p(x_bad): {100*len(eq_examples) / len(eval_samples):.2f}%\n")
-    print("\nP(Good) > P(Bad)\n")
     for x1, x2 in good_examples[:10]:
         print(f"p({x1}) > p({x2})")
-    print("\nP(Good) == P(Bad)\n")
     for x1, x2 in error_examples[:10]:
+        print(f"p({x1})<p({x2})")
+    for x1, x2 in eq_examples[:10]:
         print(f"p({x1})==p({x2})")
