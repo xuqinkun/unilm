@@ -7,8 +7,8 @@ import logging
 from pathlib import Path
 from layoutlmft.data.utils import normalize_bbox, read_ner_label, merge_bbox, simplify_bbox
 
-COVERED = 'covered'
-UNCOVERED = 'uncovered'
+COVERED = 1
+UNCOVERED = 0
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',

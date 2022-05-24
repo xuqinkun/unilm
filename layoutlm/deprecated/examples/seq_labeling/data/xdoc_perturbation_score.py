@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
+import os
 import json
 import logging
-import os
-from pathlib import Path
-
 import datasets
+import numpy as np
+from pathlib import Path
 from layoutlmft.data.datasets.utils import (
     walk_dir,
     get_file_index,
@@ -45,6 +45,10 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
         self.output_dir = Path(kwargs['output_dir'])
         self.label_names = [COVERED, UNCOVERED]
         self.tokenizer = kwargs['tokenizer']
+        if 'max_train_samples' in kwargs:
+            self.max_train_samples = kwargs['max_train_samples']
+        if 'max_eval_samples' in kwargs:
+            self.max_eval_samples = kwargs['max_eval_samples']
         self.ocr_path = None
         self.force_ocr = None
         if "ocr_path" in kwargs and kwargs['ocr_path']:
@@ -70,8 +74,8 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
                     "good_bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
                     "bad_bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
                     "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
-                    "good_label": datasets.features.ClassLabel(names=[UNCOVERED, COVERED]),
-                    "bad_label": datasets.features.ClassLabel(names=[UNCOVERED, COVERED]),
+                    "good_label": datasets.Value("uint8"),
+                    "bad_label": datasets.Value("uint8"),
                 }
             ),
             supervised_keys=None,
@@ -129,12 +133,19 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
 
         这里就是根据自己的数据集来整理
         """
+        max_samples = self.max_train_samples if split == 'train' else self.max_eval_samples
         file_dict = get_file_index(path_or_paths)
+
         if self.ocr_path and not self.is_tar_file:
             update_ocr_index(file_dict, self.ocr_path)
-        select_keys = list(file_dict.keys())[:100]
-        file_dict = {k: file_dict[k] for k in select_keys}
-        for key, file_group in file_dict.items():
+
+        keys = list(file_dict.keys())
+        indices = np.arange(len(keys))
+        np.random.shuffle(indices)
+
+        select_keys = [keys[i] for i in indices[:max_samples]]
+        for key in select_keys:
+            file_group = file_dict[key]
             if 'img' not in file_group:
                 print(f"Can't find img file of {key}")
                 continue
@@ -142,7 +153,7 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
             if 'ocr' not in file_group:
                 if self.force_ocr:
                     ocr_data = ocr(img_path)
-                    ocr_file = self.ocr_path / (key + ".json")
+                    ocr_file = self.ocr_path / f"{key}.json"
                     with ocr_file.open("w") as f_ocr:
                         json.dump(ocr_data, f_ocr)
                 else:

@@ -69,13 +69,15 @@ if __name__ == '__main__':
         name=f"x{data_args.doc_type}.{data_args.lang}",
         additional_langs=data_args.additional_langs,
         keep_in_memory=True,
+        max_eval_samples=500,
+        max_train_samples=500,
         doc_type=data_args.doc_type,
         cache_dir=data_args.data_cache_dir,
         pred_only=data_args.pred_only,
         is_tar_file=data_args.is_tar_file,
         ocr_path=data_args.ocr_path,
         force_ocr=data_args.force_ocr,
-        version='0.0.4',
+        version=data_args.version,
         output_dir=training_args.output_dir,
     )
     last_checkpoint = None
@@ -152,10 +154,11 @@ if __name__ == '__main__':
                 eq_samples.append((good_example, bad_example))
 
         print(f"p(x_good)>p(x_bad): {100 * len(good_examples) / len(eval_samples):.2f}%")
+        print(f"p(x_good)==p(x_bad): {100 * len(eq_samples) / len(eval_samples):.2f}%")
         print("\nGood\tBad\n")
         for x1, x2 in good_examples[:10]:
             print(f"p({x1}) > p({x2})")
         print("\nGood\tBad\n")
-        for x1, x2 in error_examples[:10]:
+        for x1, x2 in eq_samples[:10]:
             print(f"p({x1})==p({x2})")
-        print(f"{100 * len(eq_samples) / len(eval_samples):.2f}%")
+

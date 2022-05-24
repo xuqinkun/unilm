@@ -5,7 +5,9 @@ import numpy as np
 from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoTokenizer
-
+from transformers import AutoTokenizer, HfArgumentParser, TrainingArguments
+from layoutlmft.data.data_args import XFUNDataTrainingArguments
+from layoutlmft.models.model_args import ModelArguments
 import layoutlm.deprecated.examples.seq_labeling.data.xdoc_perturbation_score as xdoc_perturbation
 from critic.critic import gpt2_critic
 
@@ -30,7 +32,8 @@ def convert_dataset_to_sents(eval_dataset):
 if __name__ == '__main__':
     version = None
     tokenizer = AutoTokenizer.from_pretrained("/home/std2020/xuqinkun/model/xlm-roberta-base", use_fast=True)
-
+    parser = HfArgumentParser((ModelArguments, XFUNDataTrainingArguments, TrainingArguments))
+    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     dataset = load_dataset(
         path=Path(xdoc_perturbation.__file__).as_posix(),
         data_dir="/home/std2020/xuqinkun/data/doc_image/contract",
@@ -42,7 +45,7 @@ if __name__ == '__main__':
         cache_dir=None,
         pred_only=False,
         is_tar_file=True,
-        version='0.0.4',
+        version=data_args.version,
         output_dir='/home/std2020/xuqinkun/model/contract_ITA',
     )
     eval_dataset = dataset['validation']
