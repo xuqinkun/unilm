@@ -16,4 +16,3 @@ for line in lines:
                 group[word] = pool
             else:
                 group[word].update(pool)
-print(len(group.values()))
