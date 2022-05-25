@@ -6,6 +6,7 @@ import random
 import logging
 from pathlib import Path
 from layoutlmft.data.utils import normalize_bbox, read_ner_label, merge_bbox, simplify_bbox
+from txt.similar_words import word_dict, words
 
 COVERED = 1
 UNCOVERED = 0
@@ -145,39 +146,52 @@ def get_sent_perturbation_word_level(tokenizer, line, n_samples, img_size):
     dummy_labels = [COVERED]
 
     all_special_ids = tokenizer.all_special_ids
-    vocab_size = tokenizer.vocab_size - 1
-    for i in range(n_samples):
+    vocab = tokenizer.vocab
+    id2word = {v: k for k, v in vocab.items()}
+    vocab_size = len(words) - 1
+    while len(dummy_inputs) < n_samples + 1:
         tmp_tokens = []
         tmp_box = []
         label = COVERED
         for token, box in zip(input_ids, bbox):
             tmp_box.append(box)
-            if token in all_special_ids:
+            if token in all_special_ids or token == 6:
                 # Skip special ids
                 tmp_tokens.append(token)
                 continue
             prob = random.random()
             if prob < replace_token_prob:
                 # Replace current token by a random token in vocab
-                rand_token = random.randint(0, vocab_size)
-                while rand_token == token or rand_token in all_special_ids:
-                    rand_token = random.randint(0, vocab_size)
-                tmp_tokens.append(rand_token)
+                curr_word = id2word[token]
+                if curr_word in word_dict:
+                    similar_word_set = list(word_dict[curr_word])
+                    rand_index = random.randint(0, len(similar_word_set) - 1)
+                    while similar_word_set[rand_index] not in vocab:
+                        rand_index = random.randint(0, len(similar_word_set) - 1)
+                    tmp_tokens.append(vocab[similar_word_set[rand_index]])
+                else:
+                    tmp_tokens.append(token - 1)
                 label = UNCOVERED
             elif prob < replace_token_prob + delete_token_prob:
                 # Drop token
                 tmp_box.pop(-1)
                 label = UNCOVERED
             elif prob < replace_token_prob + delete_token_prob + insert_token_prob:
-                # Insert a token
-                rand_token = random.randint(0, vocab_size)
                 tmp_tokens.append(token)
+                # Insert a token
+                rand_index = random.randint(0, vocab_size)
+                rand_word = None
+                while rand_index == token or rand_index in all_special_ids or rand_word not in vocab:
+                    rand_index = random.randint(0, vocab_size)
+                    rand_word = words[rand_index]
+                tmp_tokens.append(vocab[rand_word])
                 tmp_box.append(box)
-                tmp_tokens.append(rand_token)
                 label = UNCOVERED
             else:
                 tmp_tokens.append(token)
-        dummy_labels.append(label)
-        dummy_bbox.append(tmp_box)
-        dummy_inputs.append(tmp_tokens)
+        if tmp_tokens not in dummy_inputs and len(tmp_tokens) > 0:
+            dummy_labels.append(label)
+            dummy_bbox.append(tmp_box)
+            dummy_inputs.append(tmp_tokens)
+
     return dummy_inputs, dummy_bbox, dummy_labels

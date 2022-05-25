@@ -49,6 +49,8 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
             self.max_train_samples = kwargs['max_train_samples']
         if 'max_eval_samples' in kwargs:
             self.max_eval_samples = kwargs['max_eval_samples']
+        if 'multiple_of_neg_samples' in kwargs:
+            self.multiple_of_neg_samples = kwargs['multiple_of_neg_samples']
         self.ocr_path = None
         self.force_ocr = None
         if "ocr_path" in kwargs and kwargs['ocr_path']:
@@ -69,13 +71,10 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
             features=datasets.Features(
                 {
                     "id": datasets.Value("string"),
-                    "good_inputs": datasets.Sequence(datasets.Value("int64")),
-                    "bad_inputs": datasets.Sequence(datasets.Value("int64")),
-                    "good_bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
-                    "bad_bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
+                    "input_ids": datasets.Sequence(datasets.Value("int64")),
+                    "bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
                     "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
-                    "good_label": datasets.Value("uint8"),
-                    "bad_label": datasets.Value("uint8"),
+                    "label": datasets.Value("uint8"),
                 }
             ),
             supervised_keys=None,
@@ -168,21 +167,16 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
 
             lines = get_lines(ocr_data)
             for i, line in enumerate(lines):
-                guid = f"{key}-{i}"
-                dummy_inputs, dummy_bbox, dummy_labels = get_sent_perturbation_word_level(self.tokenizer, line, 1,
+
+                dummy_inputs, dummy_bbox, dummy_labels = get_sent_perturbation_word_level(self.tokenizer, line,
+                                                                                          self.multiple_of_neg_samples,
                                                                                           image_shape)
-                good_inputs, bad_inputs = dummy_inputs
-                good_bbox, bad_bbox = dummy_bbox
-                good_label, bad_label = dummy_labels
-                assert len(good_inputs) == len(good_bbox)
-                assert len(bad_inputs) == len(bad_bbox)
-                yield guid, {
-                    "id": guid,
-                    "good_inputs": good_inputs,
-                    "bad_inputs": bad_inputs,
-                    "good_bbox": good_bbox,
-                    "bad_bbox": bad_bbox,
-                    "good_label": good_label,
-                    "bad_label": bad_label,
-                    "image": image,
-                }
+                for j, (input_ids, bbox, label) in enumerate(zip(dummy_inputs, dummy_bbox, dummy_labels)):
+                    guid = f"{key}-{i}-{j}"
+                    yield guid, {
+                        "id": guid,
+                        "input_ids": input_ids,
+                        "bbox": bbox,
+                        "label": label,
+                        "image": image,
+                    }

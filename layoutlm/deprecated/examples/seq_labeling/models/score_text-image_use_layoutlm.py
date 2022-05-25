@@ -79,6 +79,7 @@ if __name__ == '__main__':
         force_ocr=data_args.force_ocr,
         version=data_args.version,
         output_dir=training_args.output_dir,
+        multiple_of_neg_samples=3   ,
     )
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir) and not training_args.overwrite_output_dir:
