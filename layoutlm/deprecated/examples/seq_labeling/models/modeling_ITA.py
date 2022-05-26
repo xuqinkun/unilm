@@ -7,6 +7,7 @@ from layoutlmft.models.layoutlmv2.modeling_layoutlmv2 import (
 )
 from torch import nn
 from torch.nn import MSELoss
+import torch.nn.functional as F
 
 
 class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
@@ -17,7 +18,8 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
         self.max_seq_length = max_seq_length
         self.encoder = LayoutLMv2Model.from_pretrained(config.name_or_path)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.decoder = nn.Linear(config.hidden_size, 1)
+        self.hidden_proj = nn.Linear(config.hidden_size, 1)
+        self.dense = nn.Linear(max_seq_length + 49, 1)
         self.loss_fc = MSELoss()
         self.init_weights()
 
@@ -34,15 +36,20 @@ class LayoutlmForImageTextMatching(LayoutLMv2PreTrainedModel):
             bbox=bbox,
             image=image,
             attention_mask=attention_mask,
-            return_dict=False,
+            return_dict=True,
         )
-        decoder_output = self.decoder(outputs[1])
-        logits = decoder_output.sigmoid()
+        dropped_output = self.dropout(outputs[0])
+        B, L, _ = dropped_output.shape
+        logits = F.sigmoid(self.hidden_proj(dropped_output).squeeze(-1))
+        visual_mask = torch.ones((B, L - self.max_seq_length), dtype=torch.int8, device=input_ids.device)
+        # final_mask = torch.cat((attention_mask, visual_mask), dim=1)
+        # extended_attention_mask = (1.0 - final_mask) * -10000.0
+        final_logits = self.dense(logits).sigmoid()
         if scores is not None:
-            loss = self.loss_fc(logits, scores.view(-1, 1))
-            return loss, logits
+            loss = self.loss_fc(final_logits, scores.view(-1, 1))
+            return loss, final_logits
         else:
-            return logits
+            return final_logits
 
 
 class ResnetForImageTextMatching(nn.Module):

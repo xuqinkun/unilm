@@ -12,7 +12,7 @@ from transformers.file_utils import PaddingStrategy
 class DataCollatorForScore:
     tokenizer: PreTrainedTokenizerBase
     padding: Union[bool, str, PaddingStrategy] = True
-    max_length: Optional[int] = None
+    max_seq_length: Optional[int] = None
     pad_to_multiple_of: Optional[int] = None
     label_pad_token_id: int = -100
     label_to_id: Mapping = None
@@ -27,20 +27,19 @@ class DataCollatorForScore:
             for feature in features:
                 del feature["image"]
 
-        good_inputs = [feature['good_inputs'] for feature in features]
-        good_bbox = [feature['good_bbox'] for feature in features]
-        bad_inputs = [feature['bad_inputs'] for feature in features]
-        bad_bbox = [feature['bad_bbox'] for feature in features]
-        good_scores = [feature['good_label'] for feature in features]
-        bad_scores = [feature['bad_label'] for feature in features]
+        input_ids = [feature['input_ids'][:self.max_seq_length] for feature in features]
+        bbox = [feature['bbox'][:self.max_seq_length] for feature in features]
+        label = [feature['label'] for feature in features]
         batch = {
-            "input_ids": good_inputs + bad_inputs,
-            "bbox": good_bbox + bad_bbox,
+            "input_ids": input_ids,
+            "bbox": bbox,
         }
-        batch = self.tokenizer.pad(batch, max_length=self.max_length)
-        max_seq_length = len(batch["input_ids"][0])
-        batch['bbox'] = [bbox + [[0, 0, 0, 0]] * (max_seq_length - len(bbox)) for bbox in batch['bbox']]
+        batch = self.tokenizer.pad(batch,
+                                   max_length=self.max_seq_length,
+                                   padding='max_length')
+
+        batch['bbox'] = [bbox + [[0, 0, 0, 0]] * (self.max_seq_length - len(bbox)) for bbox in batch['bbox']]
         batch = {k: torch.tensor(v) for k, v in batch.items()}
-        batch['image'] = torch.cat((image, image), dim=0)
-        batch['scores'] = torch.tensor(good_scores + bad_scores, dtype=torch.float32)
+        batch['image'] = image
+        batch['scores'] = torch.tensor(label, dtype=torch.float32)
         return batch
