@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
+import os
+import sys
+sys.path.append(os.path.dirname(__file__))
 from pathlib import Path
 
-w = Path("txt/ChineseSimilarWords.txt")
-lines = w.read_text().split("\n")
+root_dir = Path(os.path.dirname(__file__))
+word_file = root_dir/"ChineseSimilarWords.txt"
+lines = word_file.read_text().split("\n")
 word_dict = {}
 for line in lines:
     if line.strip() != '':

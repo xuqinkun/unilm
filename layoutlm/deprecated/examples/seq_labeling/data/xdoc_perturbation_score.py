@@ -15,7 +15,7 @@ from layoutlmft.data.datasets.utils import (
 )
 from layoutlmft.data.utils import load_image
 
-from layoutlm.deprecated.examples.seq_labeling.data.util import (
+from examples.seq_labeling.data.util import (
     COVERED,
     UNCOVERED,
     get_sent_perturbation_word_level

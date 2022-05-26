@@ -4,8 +4,11 @@ import json
 import shutil
 import random
 import logging
+import sys
+sys.path.append(os.path.dirname(__file__))
+
 from pathlib import Path
-from layoutlmft.data.utils import normalize_bbox, read_ner_label, merge_bbox, simplify_bbox
+from layoutlmft.data.utils import normalize_bbox, merge_bbox, simplify_bbox
 from txt.similar_words import word_dict, words
 
 COVERED = 1
@@ -149,7 +152,7 @@ def get_sent_perturbation_word_level(tokenizer, line, n_samples, img_size):
     vocab = tokenizer.vocab
     id2word = {v: k for k, v in vocab.items()}
     vocab_size = len(words) - 1
-    while len(dummy_inputs) < n_samples + 1:
+    while len(dummy_inputs) < n_samples + 1 and len(input_ids) > 3:
         tmp_tokens = []
         tmp_box = []
         label = COVERED
