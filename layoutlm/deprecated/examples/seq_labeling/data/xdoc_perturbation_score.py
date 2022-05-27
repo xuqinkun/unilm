@@ -74,7 +74,7 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
                     "input_ids": datasets.Sequence(datasets.Value("int64")),
                     "bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
                     "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
-                    "label": datasets.Value("uint8"),
+                    "score": datasets.Value("float32"),
                 }
             ),
             supervised_keys=None,
@@ -168,15 +168,15 @@ class XDocPerturbationScore(datasets.GeneratorBasedBuilder):
             lines = get_lines(ocr_data)
             for i, line in enumerate(lines):
 
-                dummy_inputs, dummy_bbox, dummy_labels = get_sent_perturbation_word_level(self.tokenizer, line,
+                dummy_inputs, dummy_bbox, dummy_scores = get_sent_perturbation_word_level(self.tokenizer, line,
                                                                                           self.multiple_of_neg_samples,
                                                                                           image_shape)
-                for j, (input_ids, bbox, label) in enumerate(zip(dummy_inputs, dummy_bbox, dummy_labels)):
+                for j, (input_ids, bbox, score) in enumerate(zip(dummy_inputs, dummy_bbox, dummy_scores)):
                     guid = f"{key}-{i}-{j}"
                     yield guid, {
                         "id": guid,
                         "input_ids": input_ids,
                         "bbox": bbox,
-                        "label": label,
+                        "score": score,
                         "image": image,
                     }

@@ -6,7 +6,7 @@ import random
 import logging
 import sys
 sys.path.append(os.path.dirname(__file__))
-
+from editdistance import distance
 from pathlib import Path
 from layoutlmft.data.utils import normalize_bbox, merge_bbox, simplify_bbox
 from txt.similar_words import word_dict, words
@@ -129,6 +129,12 @@ print(f"insert_token_prob:{insert_token_prob}")
 
 
 def get_sent_perturbation_word_level(tokenizer, line, n_samples, img_size):
+    """
+    通过随机替换/删除/插入 token来生成bad sample
+    TODO
+    1. 删除token后是否应该在原位置上添加[MASK]
+    2. bad sample的分数是怎么计算出来的？基于和原始文本的编辑距离？不能直接判为0
+    """
     tokenized_inputs = tokenizer(
         line["text"],
         add_special_tokens=False,
@@ -146,7 +152,7 @@ def get_sent_perturbation_word_level(tokenizer, line, n_samples, img_size):
         bbox.append(normalize_bbox(box, size=img_size))
     dummy_inputs = [input_ids]
     dummy_bbox = [bbox]
-    dummy_labels = [COVERED]
+    dummy_scores = [1.0]
 
     all_special_ids = tokenizer.all_special_ids
     vocab = tokenizer.vocab
@@ -155,7 +161,8 @@ def get_sent_perturbation_word_level(tokenizer, line, n_samples, img_size):
     while len(dummy_inputs) < n_samples + 1 and len(input_ids) > 3:
         tmp_tokens = []
         tmp_box = []
-        label = COVERED
+        num_op = 0
+        seq_len = len(input_ids)
         for token, box in zip(input_ids, bbox):
             tmp_box.append(box)
             if token in all_special_ids or token == 6:
@@ -174,11 +181,11 @@ def get_sent_perturbation_word_level(tokenizer, line, n_samples, img_size):
                     tmp_tokens.append(vocab[similar_word_set[rand_index]])
                 else:
                     tmp_tokens.append(token - 1)
-                label = UNCOVERED
+                num_op += 1
             elif prob < replace_token_prob + delete_token_prob:
                 # Drop token
                 tmp_box.pop(-1)
-                label = UNCOVERED
+                num_op += 1
             elif prob < replace_token_prob + delete_token_prob + insert_token_prob:
                 tmp_tokens.append(token)
                 # Insert a token
@@ -189,12 +196,13 @@ def get_sent_perturbation_word_level(tokenizer, line, n_samples, img_size):
                     rand_word = words[rand_index]
                 tmp_tokens.append(vocab[rand_word])
                 tmp_box.append(box)
-                label = UNCOVERED
+                num_op += 1
             else:
                 tmp_tokens.append(token)
         if tmp_tokens not in dummy_inputs and len(tmp_tokens) > 0:
-            dummy_labels.append(label)
+            score = (seq_len - num_op) / seq_len
+            dummy_scores.append(score)
             dummy_bbox.append(tmp_box)
             dummy_inputs.append(tmp_tokens)
 
-    return dummy_inputs, dummy_bbox, dummy_labels
+    return dummy_inputs, dummy_bbox, dummy_scores

@@ -29,7 +29,7 @@ class DataCollatorForScore:
 
         input_ids = [feature['input_ids'][:self.max_seq_length] for feature in features]
         bbox = [feature['bbox'][:self.max_seq_length] for feature in features]
-        label = [feature['label'] for feature in features]
+        label = [feature['score'] for feature in features]
         batch = {
             "input_ids": input_ids,
             "bbox": bbox,

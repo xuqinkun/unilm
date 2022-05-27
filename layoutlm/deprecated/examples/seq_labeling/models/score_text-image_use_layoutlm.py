@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import sys
-
+import pickle
 sys.path.append(os.path.dirname(__file__))
 
 from datasets import load_dataset
@@ -27,30 +27,42 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
 logger = logging.getLogger(__file__)
 
 
-def convert_dataset_to_sents(eval_dataset):
+def convert_dataset_to_sents(eval_dataset, overwrite_cache):
+    cache_file = Path(training_args.output_dir) / "eval_samples.pickle"
+    if cache_file.exists() and not overwrite_cache:
+        with cache_file.open('rb') as f:
+            sample_index = pickle.load(f)
+        return sample_index
     sample_index = {}
     for feature in tqdm(eval_dataset):
-        guid = feature['id']
-        group_id = guid[:guid.rindex('-')]
-        if group_id not in sample_index:
-            sample_index[group_id] = {}
-        label = feature['label']
-        if label not in sample_index[group_id]:
-            sample_index[group_id][label] = []
         text = "".join(tokenizer.convert_ids_to_tokens(feature['input_ids']))
-        item = {
+        sample = {
             "text": text.replace('▁', ''),
             "input_ids": feature['input_ids'],
             "bbox": feature['bbox'],
             "image": feature['image'],
         }
-        sample_index[group_id][label].append(item)
+        guid = feature['id']
+        group_id = guid[:guid.rindex('-')]
+        if group_id not in sample_index:
+            sample_index[group_id] = {}
+        score = feature['score']
+        if score == 1.0:
+            key = 'good'
+        else:
+            key = 'bad'
+        if key not in sample_index[group_id]:
+            sample_index[group_id][key] = []
+        sample_index[group_id][key].append(sample)
     remove_keys = []
     for k, item in sample_index.items():
         if len(item.keys()) != 2:
             remove_keys.append(k)
     for k in remove_keys:
         sample_index.pop(k)
+    # torch.save(sample_index, cache_file)
+    with cache_file.open('wb') as f:
+        pickle.dump(sample_index, f)
     return sample_index
 
 
@@ -59,7 +71,6 @@ def convert_sample_to_feature(sample: dict):
     feature = tokenizer.pad(sample,
                             padding='max_length',
                             max_length=max_seq_length)
-
     seq_len = len(feature['bbox'])
     if seq_len < max_seq_length:
         feature['bbox'] = feature['bbox'] + [[0, 0, 0, 0]] * (max_seq_length - seq_len)
@@ -85,7 +96,7 @@ if __name__ == '__main__':
         additional_langs=data_args.additional_langs,
         keep_in_memory=True,
         max_eval_samples=100,
-        max_train_samples=200,
+        max_train_samples=500,
         doc_type=data_args.doc_type,
         cache_dir=data_args.data_cache_dir,
         pred_only=data_args.pred_only,
@@ -142,16 +153,21 @@ if __name__ == '__main__':
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics
     )
-
-    trainer.train(resume_from_checkpoint=last_checkpoint)
-
-    if training_args.local_rank in [0, -1] and training_args.do_eval:
+    local_rank = training_args.local_rank
+    if training_args.do_train:
+        trainer.train(resume_from_checkpoint=last_checkpoint)
+    elif local_rank in [0, -1]:
+        model_file = Path(last_checkpoint) / "pytorch_model.bin"
+        print(f"Load model from file {model_file}")
+        state_dict = torch.load(model_file)
+        model.load_state_dict(state_dict)
+    if local_rank in [0, -1] and training_args.do_eval:
         # Evaluation
         error_examples = []
         good_examples = []
         eq_samples = []
         max_eval_examples = 500
-        eval_samples = convert_dataset_to_sents(eval_dataset)
+        eval_samples = convert_dataset_to_sents(eval_dataset, True)
         keys = list(eval_samples.keys())
         eval_indices = np.arange(len(keys))
         np.random.shuffle(eval_indices)
@@ -160,24 +176,25 @@ if __name__ == '__main__':
         model.to(device)
         model.eval()
         for item in tqdm(eval_samples):
-            good_example = item[1][0]
-            bad_example = item[0][0]
+            good_example = item['good'].pop()
+            bad_example = item['bad'].pop()
             good_text, x_good = convert_sample_to_feature(good_example)
             bad_text, x_bad = convert_sample_to_feature(bad_example)
             good_score = model(**x_good).item()
             bad_score = model(**x_bad).item()
+            pair = (good_text, bad_text, good_score, bad_score)
             if good_score > bad_score:
-                good_examples.append((good_text, bad_text))
+                good_examples.append(pair)
             elif good_score < bad_score:
-                error_examples.append((good_text, bad_text))
+                error_examples.append(pair)
             else:
-                eq_samples.append((good_text, bad_text))
+                eq_samples.append(pair)
 
         print(f"p(x_good)>p(x_bad): {100 * len(good_examples) / len(eval_samples):.2f}%")
         print(f"p(x_good)==p(x_bad): {100 * len(eq_samples) / len(eval_samples):.2f}%")
-        for x1, x2 in good_examples[:10]:
-            print(f"p({x1}) > p({x2})")
-        for x1, x2 in eq_samples[:10]:
-            print(f"p({x1})==p({x2})")
-        for x1, x2 in error_examples[:10]:
-            print(f"p({x1})<p({x2})")
+        for x1, x2, s1, s2 in good_examples[:10]:
+            print(f"p({x1})={s1:.5f} > p({x2})={s2:.5f}")
+        for x1, x2, s1, s2 in eq_samples[:10]:
+            print(f"p({x1})={s1:.5f} == p({x2})={s2:.5f}")
+        for x1, x2, s1, s2 in error_examples[:10]:
+            print(f"p({x1})={s1:.5f} < p({x2})={s2:.5f}")
