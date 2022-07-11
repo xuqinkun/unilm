@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import sys
 import pickle
+
 sys.path.append(os.path.dirname(__file__))
 
 from datasets import load_dataset
@@ -167,34 +168,38 @@ if __name__ == '__main__':
         good_examples = []
         eq_samples = []
         max_eval_examples = 500
-        eval_samples = convert_dataset_to_sents(eval_dataset, True)
+        eval_samples = convert_dataset_to_sents(eval_dataset, False)
         keys = list(eval_samples.keys())
         eval_indices = np.arange(len(keys))
         np.random.shuffle(eval_indices)
-        eval_samples = [eval_samples[keys[i]] for i in eval_indices[:max_eval_examples]]
+        eval_samples = {keys[i]:eval_samples[keys[i]] for i in eval_indices[:max_eval_examples]}
         device = 'cuda:0'
         model.to(device)
         model.eval()
-        for item in tqdm(eval_samples):
+        groups = []
+        for k, item in tqdm(eval_samples.items()):
             good_example = item['good'].pop()
-            bad_example = item['bad'].pop()
             good_text, x_good = convert_sample_to_feature(good_example)
-            bad_text, x_bad = convert_sample_to_feature(bad_example)
             good_score = model(**x_good).item()
-            bad_score = model(**x_bad).item()
-            pair = (good_text, bad_text, good_score, bad_score)
-            if good_score > bad_score:
-                good_examples.append(pair)
-            elif good_score < bad_score:
-                error_examples.append(pair)
-            else:
-                eq_samples.append(pair)
+            pairs = [(good_text, good_score)]
+            while len(item['bad']) > 0:
+                bad_example = item['bad'].pop()
+                bad_text, x_bad = convert_sample_to_feature(bad_example)
+                bad_score = model(**x_bad).item()
+                pairs.append((bad_text, bad_score))
+            pairs.sort(key=lambda k: k[1], reverse=True)
+            groups.append((k, pairs))
+        # print(f"p(x_good)>p(x_bad): {100 * len(good_examples) / len(eval_samples):.2f}%")
+        # print(f"p(x_good)==p(x_bad): {100 * len(eq_samples) / len(eval_samples):.2f}%")
+        # for x1, x2, s1, s2 in good_examples[:10]:
+        #     print(f"p({x1})={s1:.5f} > p({x2})={s2:.5f}")
+        # for x1, x2, s1, s2 in eq_samples[:10]:
+        #     print(f"p({x1})={s1:.5f} == p({x2})={s2:.5f}")
+        # for x1, x2, s1, s2 in error_examples[:10]:
+        #     print(f"p({x1})={s1:.5f} < p({x2})={s2:.5f}")
 
-        print(f"p(x_good)>p(x_bad): {100 * len(good_examples) / len(eval_samples):.2f}%")
-        print(f"p(x_good)==p(x_bad): {100 * len(eq_samples) / len(eval_samples):.2f}%")
-        for x1, x2, s1, s2 in good_examples[:10]:
-            print(f"p({x1})={s1:.5f} > p({x2})={s2:.5f}")
-        for x1, x2, s1, s2 in eq_samples[:10]:
-            print(f"p({x1})={s1:.5f} == p({x2})={s2:.5f}")
-        for x1, x2, s1, s2 in error_examples[:10]:
-            print(f"p({x1})={s1:.5f} < p({x2})={s2:.5f}")
+        for k, group in groups[:10]:
+            print(k)
+            for item in group:
+                print(f"{item[0]}\t{item[1]}")
+            print("\n")
