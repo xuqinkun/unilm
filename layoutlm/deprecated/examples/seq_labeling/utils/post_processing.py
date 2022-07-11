@@ -56,14 +56,15 @@ def convert_predictions_to_dict(class_map, raw_texts: str, predicted_classes, pr
     null_categories = []
     for category in results.keys():
         best_predicted_text, best_probability = results[category]
-        if category == "company":
-            results[category] = clean_company(best_predicted_text)
-        elif category == "address":
-            results[category] = clean_address(best_predicted_text)
-        elif category == "date":
-            results[category] = extract_date(best_predicted_text)
-        elif category == "total":
-            results[category] = extract_total(best_predicted_text)
+        results[category] = best_predicted_text
+        # if category == "company":
+        #     results[category] = clean_company(best_predicted_text)
+        # elif category == "address":
+        #     results[category] = clean_address(best_predicted_text)
+        # elif category == "date":
+        #     results[category] = extract_date(best_predicted_text)
+        # elif category == "total":
+        #     results[category] = extract_total(best_predicted_text)
 
         # If the model failed to recognise the category, we store it so that it can be removed later on.
         if len(results[category]) == 0:

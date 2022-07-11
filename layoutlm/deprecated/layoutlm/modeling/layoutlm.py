@@ -4,13 +4,15 @@ import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss, MSELoss
 from transformers import BertConfig, BertModel, BertPreTrainedModel
-from transformers.modeling_bert import BertLayerNorm
+# from transformers.modeling_bert import BertLayerNorm
 
 logger = logging.getLogger(__name__)
 
 LAYOUTLM_PRETRAINED_MODEL_ARCHIVE_MAP = {}
 
 LAYOUTLM_PRETRAINED_CONFIG_ARCHIVE_MAP = {}
+
+BertLayerNorm = torch.nn.LayerNorm
 
 
 class LayoutlmConfig(BertConfig):

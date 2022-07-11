@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 import os
-import os.path as osp
-import json
 import re
+import json
+import os.path as osp
+from pathlib import Path
 import http.client as http_client
 from json.decoder import JSONDecodeError
 from layoutlmft.data.utils import normalize_bbox, merge_bbox, simplify_bbox
@@ -132,9 +133,9 @@ def get_doc_items(tokenizer, lines, labels, label_map, image_shape, output_dir, 
         if len(line["text"].strip()) == 0:
             continue
 
-        tokenized_inputs, tags, label_name, entity_span = parse_text(tokenizer, line.copy(), image_shape, line_id,
-                                                                     tag_line_ids, id2label, label_map, output_dir,
-                                                                     split)
+        tokenized_inputs, tags, label_name, entity_span = preprocessing(tokenizer, line.copy(), image_shape, line_id,
+                                                                        tag_line_ids, id2label, label_map, output_dir,
+                                                                        split)
 
         if tags[0] != "O":
             entity_id_to_index_map[line_id] = len(entities)
@@ -150,7 +151,7 @@ def get_doc_items(tokenizer, lines, labels, label_map, image_shape, output_dir, 
     return tokenized_doc, entities
 
 
-def parse_text(tokenizer, line, image_size, line_id, tag_line_ids, id2label, label_map, output_dir, split):
+def preprocessing(tokenizer, line, image_size, line_id, tag_line_ids, id2label, label_map, output_dir, split):
     text_length = 0
     ocr_length = 0
     bbox = []
@@ -236,8 +237,10 @@ def parse_text(tokenizer, line, image_size, line_id, tag_line_ids, id2label, lab
             tags[0] = f"B-{label_name.upper()}"
             entity_span = (0, len(text))
     assert len(tags) == len(tokenized_inputs["input_ids"]), "Not equal"
-
-    with open(osp.join(output_dir, split + ".csv"), "a+") as f:
+    output_dir = Path(output_dir)
+    if not osp.exists(output_dir):
+        output_dir.mkdir(parents=True, exist_ok=True)
+    with open(output_dir / (split + ".csv"), "a+") as f:
         for token, label in zip(sentence_tokens, tags):
             f.write("%s\t%s\n" % (token, label))
         f.write("\n")

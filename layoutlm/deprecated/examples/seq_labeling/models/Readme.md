@@ -1,0 +1,3 @@
+# Run
+conda activate lmv1
+python -m torch.distributed.launch --nproc_per_node=2 /home/std2020/xuqinkun/code/unilm/layoutlm/deprecated/examples/seq_labeling/models/score_text-image_use_layoutlm.py --model_name_or_path /home/std2020/xuqinkun/model/layoutxlm-base --encoder_tokenizer /home/std2020/xuqinkun/model/xlm-roberta-base --data_dir /home/std2020/xuqinkun/data/doc_image/contract --output_dir /home/std2020/xuqinkun/model/contract_ITA --max_seq_length 60 --doc_type contract --is_tar_file true --remove_unused_columns False --label_names scores --do_eval --max_val_samples 500 --lang zh --version 0.0.9 --per_device_train_batch_size 16
